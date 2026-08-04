@@ -1,0 +1,7 @@
+langgraph
+langchain-core
+langchain-openai
+pydantic>=2.0
+jsonschema
+python-dotenv
+requests

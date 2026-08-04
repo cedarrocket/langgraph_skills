@@ -1,0 +1,61 @@
+{
+  "global_text": "",
+  "max_loops": 10,
+  "states": {
+    "TestTool": {
+      "name": "TestTool",
+      "instructions": "Your task is to call the registered tools and summarize the results.",
+      "transitions": [
+        {
+          "condition": null,
+          "next": "Finish",
+          "feedback": null,
+          "require_approval": false
+        }
+      ],
+      "is_final": false,
+      "state_type": "llm",
+      "tools": [
+        "mock_tool",
+        "api_tool"
+      ],
+      "src": null,
+      "interactive": false,
+      "output_schema": null,
+      "history_window": null,
+      "max_loops": null
+    },
+    "Finish": {
+      "name": "Finish",
+      "instructions": "Display the final output.",
+      "transitions": [],
+      "is_final": true,
+      "state_type": "llm",
+      "tools": [],
+      "src": null,
+      "interactive": false,
+      "output_schema": null,
+      "history_window": null,
+      "max_loops": null
+    }
+  },
+  "tools": {
+    "mock_tool": {
+      "name": "mock_tool",
+      "type": "script",
+      "src": "test_skills/mock_script_tool.py",
+      "url": null,
+      "method": "GET",
+      "description": "A mock script tool that processes the given string payload."
+    },
+    "api_tool": {
+      "name": "api_tool",
+      "type": "api",
+      "src": null,
+      "url": "http://api.example.com/data",
+      "method": "POST",
+      "description": "A mock API tool."
+    }
+  },
+  "input_options": []
+}

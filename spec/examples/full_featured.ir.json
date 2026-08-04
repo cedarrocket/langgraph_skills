@@ -1,0 +1,105 @@
+{
+  "global_text": "You are a tech research assistant. Your task is to search the web for a given tech topic, compile findings, and output a formatted Markdown report.",
+  "max_loops": 40,
+  "states": {
+    "SearchInfo": {
+      "name": "SearchInfo",
+      "instructions": "Search the web for the tech topic provided in the payload.",
+      "transitions": [
+        {
+          "condition": null,
+          "next": "CompileReport",
+          "feedback": null,
+          "require_approval": false
+        }
+      ],
+      "is_final": false,
+      "state_type": "llm",
+      "tools": [
+        "web_search"
+      ],
+      "src": null,
+      "interactive": false,
+      "output_schema": null,
+      "history_window": null,
+      "max_loops": null
+    },
+    "CompileReport": {
+      "name": "CompileReport",
+      "instructions": "Compile findings into a validated JSON structure.",
+      "transitions": [
+        {
+          "condition": "topic unclear",
+          "next": "SearchInfo",
+          "feedback": "Clarify the topic.",
+          "require_approval": false
+        },
+        {
+          "condition": "findings complete",
+          "next": "FormatReport",
+          "feedback": null,
+          "require_approval": true
+        }
+      ],
+      "is_final": false,
+      "state_type": "llm",
+      "tools": [],
+      "src": null,
+      "interactive": false,
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "topic",
+          "findings"
+        ]
+      },
+      "history_window": null,
+      "max_loops": 8
+    },
+    "FormatReport": {
+      "name": "FormatReport",
+      "instructions": "Display the final report.",
+      "transitions": [],
+      "is_final": true,
+      "state_type": "llm",
+      "tools": [],
+      "src": null,
+      "interactive": false,
+      "output_schema": null,
+      "history_window": null,
+      "max_loops": null
+    }
+  },
+  "tools": {},
+  "input_options": [
+    {
+      "name": "input_path",
+      "required": false,
+      "default": null,
+      "help": "Input file path. If '-' or not provided, reads from stdin.",
+      "env": null,
+      "reader": "txt_reader",
+      "writer": null
+    },
+    {
+      "name": "output_path",
+      "required": false,
+      "default": null,
+      "help": "Output file path. If '-' or not provided, writes to stdout.",
+      "env": null,
+      "reader": null,
+      "writer": "txt_writer"
+    }
+  ]
+}

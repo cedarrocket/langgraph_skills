@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "langgraph-skills"
+version = "0.1.0"
+description = "Declarative LangGraph Skill Engine and State Machine Harness"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "langgraph",
+    "langchain-core",
+    "langchain-openai",
+    "pydantic>=2.0",
+    "jsonschema",
+    "python-dotenv",
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+]
+agents = [
+    "mypy",
+]
+
+[project.urls]
+Homepage = "https://github.com/cedarrocket/langgraph_skills"
+Repository = "https://github.com/cedarrocket/langgraph_skills"
+
+[project.scripts]
+lgskills = "langgraph_skills.cli:main"
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+no_implicit_optional = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["F", "I"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["langgraph_skills*"]

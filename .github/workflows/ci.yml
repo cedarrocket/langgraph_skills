@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check langgraph_skills tests
+
+      - name: Type check (mypy)
+        run: mypy langgraph_skills
+
+      - name: Tests (pytest)
+        run: pytest tests/ -q
+
+      - name: Validate all skills
+        run: |
+          for skill in *.md test_skills/*.md; do
+            case "$skill" in
+              README.md|skill_syntax_guide.md) continue ;;
+            esac
+            echo "=== $skill ==="
+            lgskills validate "$skill" || exit 1
+          done
+
+      - name: Build wheel
+        run: |
+          pip install --quiet build
+          python -m build
+
+      - name: Verify wheel metadata (entry point)
+        run: |
+          python -c "import zipfile,glob; z=zipfile.ZipFile(glob.glob('dist/*.whl')[0]); d=z.read('langgraph_skills-0.1.0.dist-info/entry_points.txt').decode(); assert 'lgskills = langgraph_skills.cli:main' in d; print(d)"

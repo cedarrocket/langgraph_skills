@@ -1,0 +1,47 @@
+{
+  "global_text": "You are a conversational assistant.",
+  "max_loops": 10,
+  "states": {
+    "Refine": {
+      "name": "Refine",
+      "instructions": "协助用户将其日常任务通过讨论转化为详细需求。\n一次提问不要贪多，保持克制，层层递进。",
+      "transitions": [
+        {
+          "condition": "user says end and requirements are clear",
+          "next": "GenerateDoc",
+          "feedback": "Proceed to generate document.",
+          "require_approval": false
+        },
+        {
+          "condition": "requirements need further clarification",
+          "next": "Refine",
+          "feedback": "Continue clarifying.",
+          "require_approval": false
+        }
+      ],
+      "is_final": false,
+      "state_type": "llm",
+      "tools": [],
+      "src": null,
+      "interactive": true,
+      "output_schema": null,
+      "history_window": null,
+      "max_loops": null
+    },
+    "GenerateDoc": {
+      "name": "GenerateDoc",
+      "instructions": "Generate the final requirements document.",
+      "transitions": [],
+      "is_final": true,
+      "state_type": "llm",
+      "tools": [],
+      "src": null,
+      "interactive": false,
+      "output_schema": null,
+      "history_window": null,
+      "max_loops": null
+    }
+  },
+  "tools": {},
+  "input_options": []
+}

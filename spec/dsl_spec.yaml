@@ -1,0 +1,197 @@
+# ==============================================================================
+# langgraph-skills DSL 规范（单一真相源 / Single Source of Truth）
+# ------------------------------------------------------------------------------
+# 本文件是 DSL 语法的唯一权威定义。它将被以下内容消费：
+#   1. scripts/gen_docs.py             -> 生成 skill_syntax_guide.md
+#   2. scripts/gen_compiler_prompt.py  -> 生成 compiler.py 的 COMPILER_PROMPT
+#   3. 金标准示例 (spec/examples/)     -> 锁死 parser 的 round-trip 行为
+#
+# 修改 DSL 语法时：先改本文件 -> 重新生成文档/提示词 -> 更新金标准示例 -> 跑测试。
+# 不得直接手改 skill_syntax_guide.md 或 COMPILER_PROMPT 而不回写本文件。
+# ==============================================================================
+
+spec_version: 1.0
+dsl_version: "0.1"
+
+# 设计基线（与项目定位一致）
+design_principles:
+  - "DSL 是密集 prompt 型 LLM 脚本语言，不引入表达式或复杂流程控制（那是内嵌 script 的职责）"
+  - "源文件首先是 markdown，允许自然语言混入；未知 section 是 warning 而非 error"
+  - "进程 I/O 边界（stdin/stdout/tty/exit code）不进 DSL，归 runner 层"
+  - "一切可脚本化的活（多文件读写、复杂逻辑）与 skill 解耦，走 tool/script"
+
+# ------------------------------------------------------------------------------
+# 1. 文档结构 (Document Structure)
+# ------------------------------------------------------------------------------
+document:
+  shebang:
+    optional: true
+    description: "首行可选 #!/usr/bin/env lgskills，解析时跳过"
+  global_text:
+    optional: true
+    description: "第一个顶层 section 之前的文本，作为全局系统提示词"
+  top_level_section:
+    syntax: "# [SectionType] OptionalArg"
+    description: "顶层 section 按此模式切块；每块是独立声明区域"
+
+# ------------------------------------------------------------------------------
+# 2. Section 类型 (Section Types)
+# ------------------------------------------------------------------------------
+sections:
+  # 引擎参数：解释器自己消费，不进入 CLI / deliverables
+  config:
+    heading: "# [Config]"
+    description: "引擎运行时参数，由解释器消费"
+    fields:
+      max_loops:
+        type: integer
+        default: 10
+        description: "整张图的全局执行预算上限"
+    env_overrides:
+      - "model / base_url / temperature / strict 通过环境变量 LGSKILLS_MODEL / LGSKILLS_BASE_URL / LGSKILLS_TEMPERATURE / LGSKILLS_STRICT 配置（见 config.py）"
+
+  # 进程 I/O 边界声明：reader/writer 快捷方式
+  io:
+    heading: "# [IO]"
+    description: "声明 skill 的输入输出工具；解析器据此生成保留参数 input_path / output_path"
+    fields:
+      reader:
+        type: tool_name
+        description: "读入工具。存在时自动注册保留参数 input_path"
+      writer:
+        type: tool_name
+        description: "写出工具。存在时自动注册保留参数 output_path"
+    reserved_options:
+      input_path:
+        auto_from: reader
+        description: "读文件内容 -> deliverables['payload']；'-' 或缺省走 stdin"
+      output_path:
+        auto_from: writer
+        description: "最终 payload 写出；'-' 或缺省走 stdout"
+    notes:
+      - "不提供通用 options 声明块（YAGNI 残留，已删除）"
+
+  # 工具声明
+  tools:
+    heading: "# [Tools]"
+    description: "声明 skill 可用的工具（脚本或 API）"
+    item_syntax: "- **tool_name**:\n  - **type**: ...\n  - **src**: ..."
+    fields:
+      type:
+        enum: [script, api]
+        default: script
+        description: "工具种类"
+      src:
+        type: string
+        required_when: "type == script"
+        description: "脚本文件路径"
+      url:
+        type: string
+        required_when: "type == api"
+        description: "API 地址"
+      method:
+        enum: [GET, POST]
+        default: GET
+        description: "HTTP 方法（仅 api）"
+      description:
+        type: string
+        default: ""
+        description: "工具描述"
+
+  # 状态节点声明
+  state:
+    heading: "# [State] StateName"
+    description: "一个状态节点"
+    metadata: # 状态体顶部的 `- **key**: value` 元数据
+      type:
+        enum: [llm, code, script, skill]
+        default: llm
+        description: "节点类型，决定执行器"
+      tools:
+        type: list[tool_name]
+        default: []
+        description: "绑定到该节点的工具"
+      src:
+        type: string
+        required_when: "type in (script, skill)"
+        description: "脚本或嵌套 skill 的路径"
+      interactive:
+        type: boolean
+        default: false
+        description: "是否交互式（与用户对话）"
+      is_final:
+        type: boolean
+        default: false
+        description: "是否为终态"
+      history_window:
+        type: integer
+        default: null
+        description: "该节点可见的对话历史轮数；null 表示不限制"
+      max_loops:
+        type: integer
+        default: null
+        description: "该节点独立执行上限；null 表示继承全局 max_loops"
+    sub_sections: # 状态体内的 `## [X]` 子区块
+      transitions:
+        heading: "## [Transitions]"
+        description: "状态跳转规则；非 final 状态必须定义，否则触发隐式顺序 fallback"
+        forms:
+          table:
+            columns: [Condition, Next State, Require Approval, Feedback]
+            description: "多条件/带审批的跳转用表格"
+            optional_columns: [Condition, Require Approval, Feedback]
+          list:
+            syntax: |
+              - Default -> TargetState
+              - If `cond` -> TargetState (Feedback: "...") [Require Approval]
+            description: "单跳转或简单条件用列表"
+      output:
+        headings: ["## [Output JSON]", "## [Output Schema]", "## [Output]"]
+        description: "输出 JSON Schema 约束；内容为 JSON 文本（可带 ```json 围栏）"
+
+# ------------------------------------------------------------------------------
+# 3. 语义规则 (Semantics)
+# ------------------------------------------------------------------------------
+semantics:
+  # 解析容错
+  unknown_section:
+    policy: warning
+    closable: true
+    reason: "源首先是 markdown，允许自然语言混入"
+  duplicate_state_name:
+    policy: error
+    reason: "结构性冲突，破坏图语义"
+  non_final_without_transitions:
+    policy: implicit_sequential_fallback
+    description: "非 final 且无 transitions 时，自动连接声明顺序的下一个状态"
+    status: current_behavior
+    note: "重构时需显式化（validator 阶段规范化，而非解析时魔法）"
+
+  # 跳转语义
+  transition:
+    condition:
+      semantics: "条件仅作为对 LLM 的提示，由 LLM 决定 next_state（不程序化求值）"
+      extension_point: "未来若需表达式求值，用独立表达式子解析器，不进主语法"
+    require_approval:
+      description: "跳转前需人工审批"
+    feedback:
+      description: "跳转时回传给目标状态的反馈文本"
+
+  # 循环预算
+  max_loops:
+    global: "来自 # [Config] max_loops（默认 10）"
+    node: "来自状态元数据 max_loops；null 时继承全局"
+    enforcement: "全局或节点任一超限 -> 强制 END 并警告"
+    normalization: "在语义分析阶段统一归一化为整数，不留运行时"
+
+  # 状态类型 -> 执行器映射
+  state_executor_map:
+    llm: "LLM 节点：构造 prompt、绑定工具、可交互"
+    code: "Python 代码节点：exec 状态体中的代码"
+    script: "脚本节点：exec src 指向的文件"
+    skill: "嵌套 skill 节点：运行子 skill，payload 作为输入"
+
+  # 输出契约
+  io_contract:
+    input_rule: "input_path 读入内容 -> deliverables['payload']（唯一显式规则）"
+    output_rule: "最终 payload 写出（stdout 或 writer 工具），其余为日志走 stderr"
