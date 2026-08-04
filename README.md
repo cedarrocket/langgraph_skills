@@ -1,6 +1,8 @@
-# LangGraph Skills: 声明式 Agent 状态机与执行框架 (Agent Harness)
+> 此 README 为 LLM 自行生成，后续会更新人工版本。
 
-本项目是一个轻量级、高度解耦且面向 **Vibe Coding** 的声明式 Agent 执行框架（Agent Harness）。它能够将人类用 Markdown 编写的低耦合、非结构化 Agent 行为描述草稿（Draft Skills），编译标准化为具有严谨控制流的标准 Markdown AST 状态机（Compiled Skills），并通过 LangGraph 引擎动态生成和执行复杂的 Agent 拓扑结构。
+# LangGraph Skills
+
+本项目是一个基于 Markdown Skills 和 LangGraph 实现的，可以以近似 Markdown Skills 语法实现轻量级 LLM Agent 状态机的小型解释器项目。它能够将人类用 Markdown 编写的低耦合、非结构化 Agent 行为描述草稿（Draft Skills），编译标准化为具有严谨控制流的标准 Markdown AST 状态机（Compiled Skills），并通过 LangGraph 引擎动态生成和执行复杂的 Agent 拓扑结构。
 
 其最初的灵感源于重构类似于 [_archive/agent_v2.py](_archive/agent_v2.py) 这种充斥着硬编码逻辑、对话历史污染和 Mypy 校验重试逻辑的传统 Python Agent 脚本。通过本项目，复杂的编程助手已被完全抽象并用声明式的 Markdown Skill [assistant_compiled.md](assistant_compiled.md) 代替。
 
