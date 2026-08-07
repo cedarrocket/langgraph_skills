@@ -302,7 +302,8 @@ triggers.py 核心 → 检查点埋点 → 语法糖展开 → triggers.json 加
 
 #### 相关独立重构项（另立项）
 
-- **`type: skill` 升级为真子图**：从 `run_skill`（Python 模拟）改为 `add_node(子图)`（LangGraph 原生子图）。LangGraph 子图状态接口 = **schema 字段声明制**（共享字段自动进出，非共享隔离）；`deliverables` 天然适合作为共享通道。此重构同时解锁：checkpoint/流式/子图 call-return 语义。
+- **`# [SubGraph]` 升级为真子图**（✅ 已实现，commit 见 git log）：`# [SubGraph]` 声明编译为 `add_node(子图)`（LangGraph 原生子图）。子图状态接口 = schema 字段声明制（共享字段自动进出）；messages 用自定义 reducer（`ReplaceMessages` 支持整体覆盖）。覆盖语义：子图内部写 `deliverables["_child_messages"]`（压缩结果），父图子图节点后的 `_sub_after_<name>` 后处理节点按 `_replace_messages` 标志整体替换。支持递归嵌套（内部 `## [SubGraph]` + `### [Node]`）。`type: skill`（run_skill 模拟）保留为兼容路径。
+- **LLM 摘要（llm_summarize）不再需要**（用户确认）：压缩场景由子图机制承担（子图内用 `type: llm` 节点做摘要即可），不引入专用 handler。
 
 ### 7.7 架构方向结论（openswe 调研后定案）
 

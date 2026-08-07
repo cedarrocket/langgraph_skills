@@ -9,6 +9,7 @@ import pytest
 from langchain_core.messages import HumanMessage
 
 from langgraph_skills.executors import ExecutorContext, execute_skill
+from langgraph_skills.graph import build_graph
 from langgraph_skills.models import AgentState, NodeInfo, Transition
 from langgraph_skills.parser import ParseError, parse_compiled_skill, validate_node_graph
 from langgraph_skills.tools import ToolRegistry
@@ -239,3 +240,187 @@ def test_execute_skill_merge_messages(tmp_path):
     contents = [m.content for m in state["messages"]]
     assert "parent-1" in contents
     assert "child-new" in contents
+
+
+# ---------------------------------------------------------------------------
+# 真子图（LangGraph add_node 子图）
+# ---------------------------------------------------------------------------
+
+
+def _invoke(app, messages, payload="", start="A"):
+    return app.invoke(
+        AgentState(
+            messages=messages, global_instructions="", state_instructions="",
+            deliverables={} if not payload else {"payload": payload},
+            current_node=start, next_state="", loop_count=0, max_loops=10,
+        )
+    )
+
+
+def test_true_subgraph_runs_nodes(tmp_path):
+    """真子图：# [SubGraph] 编译为 add_node 子图，内部节点执行并回传。"""
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **type**: code
+
+```python
+transition_to("Sub", "x")
+```
+
+## [Transitions]
+- Default ==> Sub
+
+# [SubGraph] Sub
+## [Node] S1
+- **type**: code
+
+```python
+transition_to(None, "s1done")
+```
+""",
+    )
+    app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
+    r = _invoke(app, [HumanMessage(content="hi")])
+    assert r["deliverables"]["payload"] == "s1done"
+
+
+def test_true_subgraph_inherits_messages(tmp_path):
+    """真子图 ==> 继承：子图内部可见父图 messages。"""
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **type**: code
+
+```python
+transition_to("Sub", "x")
+```
+
+## [Transitions]
+- Default ==> Sub
+
+# [SubGraph] Sub
+## [Node] S1
+- **type**: code
+
+```python
+transition_to(None, "saw-" + str(len(messages)))
+```
+""",
+    )
+    app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
+    r = _invoke(app, [HumanMessage(content="m1"), HumanMessage(content="m2")])
+    assert r["deliverables"]["payload"] == "saw-2"
+
+
+def test_true_subgraph_replace_messages(tmp_path):
+    """真子图 ==> X <== 覆盖：子图经 _child_messages 协议整体替换父图 messages。"""
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **type**: code
+
+```python
+transition_to("Sub", "x")
+```
+
+## [Transitions]
+- Default ==> Sub <==
+
+# [SubGraph] Sub
+## [Node] S1
+- **type**: code
+
+```python
+deliverables["_child_messages"] = messages[-1:]
+transition_to(None, "compressed")
+```
+""",
+    )
+    app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
+    r = _invoke(app, [HumanMessage(content="m1"), HumanMessage(content="m2"), HumanMessage(content="m3")])
+    assert [m.content for m in r["messages"]] == ["m3"]
+
+
+def test_true_subgraph_pre_node_redirect(tmp_path):
+    """pre_node 超限 → 提前 return 跳真子图 → 覆盖回传（不计 loop）。"""
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **type**: code
+
+```python
+transition_to("B", "x")
+```
+
+## [Transitions]
+- Default -> B
+
+# [Node] B
+- **type**: code
+- **max_context_length**: 10
+
+```python
+transition_to(None, "B-run")
+```
+
+## [Transitions]
+- Default ==> Compress <==
+
+# [SubGraph] Compress
+## [Node] C1
+- **type**: code
+
+```python
+deliverables["_child_messages"] = messages[-1:]
+transition_to(None, "compressed")
+```
+""",
+    )
+    app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
+    msgs = [HumanMessage(content=f"msg {i}" + "x" * 50) for i in range(5)]
+    r = _invoke(app, msgs)
+    # 覆盖回传：压缩到 1 条
+    assert len(r["messages"]) == 1
+    assert r["deliverables"]["payload"] == "compressed"
+    # B 被跳过（未执行），loop 计数不含 B：A(1) + 子图(2)
+    assert r["loop_count"] == 2
+
+
+def test_true_subgraph_nested(tmp_path):
+    """递归嵌套：子图内部再声明子图。"""
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **type**: code
+
+```python
+transition_to("Sub1", "x")
+```
+
+## [Transitions]
+- Default -> Sub1
+
+# [SubGraph] Sub1
+## [Node] S1
+- **type**: code
+
+```python
+transition_to("Sub2", "x")
+```
+
+## [Transitions]
+- Default -> Sub2
+
+## [SubGraph] Sub2
+### [Node] S2
+- **type**: code
+
+```python
+transition_to(None, "nested-done")
+```
+""",
+    )
+    app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
+    r = _invoke(app, [HumanMessage(content="hi")])
+    assert r["deliverables"]["payload"] == "nested-done"

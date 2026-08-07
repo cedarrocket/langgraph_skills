@@ -382,14 +382,14 @@ def _apply_sequential_fallback(node_infos: List[NodeInfo]) -> None:
             info.transitions.append(Transition(next=node_infos[i + 1].name))
 
 
-def _split_sub_sections(body: str) -> List[Tuple[Tuple[str, str], str]]:
-    """按 `## [X]` 切分子图体内的子区块（子图内节点用二级标题）。"""
-    pattern = r"^##\s+\[([^\]]+)\]\s*(.*)$"
+def _split_sub_sections(body: str, heading: str = r"^##\s+\[([^\]]+)\]\s*(.*)$") -> List[Tuple[Tuple[str, str], str]]:
+    """按 `## [X]`（默认）或 `### [X]`（嵌套子图）切分子区块。"""
+    pattern = re.compile(heading)
     sections: List[Tuple[Tuple[str, str], str]] = []
     current: Optional[Tuple[str, str]] = None
     current_body: List[str] = []
     for line in body.splitlines():
-        match = re.match(pattern, line)
+        match = pattern.match(line)
         if match:
             if current:
                 sections.append((current, "\n".join(current_body)))
@@ -402,29 +402,40 @@ def _split_sub_sections(body: str) -> List[Tuple[Tuple[str, str], str]]:
     return sections
 
 
-def _parse_subgraph_body(name: str, body: str) -> SubGraphInfo:
+def _parse_subgraph_body(name: str, body: str, heading: str = r"^##\s+\[([^\]]+)\]\s*(.*)$") -> SubGraphInfo:
     """解析 `# [SubGraph] Name` 的 body。
 
     两种形态：
       - body 只有 `- **src**: path` → 加载外部文件（src 简写）
       - body 含 `## [Node]` 子区块 → 形态 A（真子图，内部节点列表）
+    嵌套子图用 `### [Node]` 三级标题（heading 参数调整）。
     """
     sub = SubGraphInfo(name=name)
 
     # 检查 src 简写形态
     src_match = re.search(r"(?m)^\s*-\s*\*\*src\*\*:\s*(.+)$", body)
-    if src_match and "## [" not in body:
+    if src_match and "## [" not in body and "### [" not in body:
         sub.src = src_match.group(1).strip()
         return sub
 
-    # 形态 A：解析子图体内的 ## [Node]
+    # 形态 A：解析子图体内的 ## [Node] / ## [SubGraph]（递归嵌套）
     node_infos: List[NodeInfo] = []
-    for (sec_type, sec_arg), sec_body in _split_sub_sections(body):
+    for (sec_type, sec_arg), sec_body in _split_sub_sections(body, heading):
         sec = sec_type.lower()
         if sec == _SECTION_STATE:
             if not sec_arg:
                 raise ParseError(f"Node section missing name in subgraph '{name}': `## [{sec_type}]`")
             node_infos.append(parse_node_body(sec_arg, sec_body))
+        elif sec == _SECTION_SUBGRAPH:
+            if not sec_arg:
+                raise ParseError(f"SubGraph section missing name in subgraph '{name}': `### [{sec_type}]`")
+            nested = _parse_subgraph_body(sec_arg, sec_body, heading=r"^###\s+\[([^\]]+)\]\s*(.*)$")
+            if nested.name in sub.nodes:
+                raise ParseError(f"Duplicate subgraph name: '{nested.name}'")
+            sub.nodes[nested.name] = NodeInfo(
+                name=nested.name, node_type="subgraph",
+                subgraph=nested, is_final=False,
+            )
     _apply_sequential_fallback(node_infos)
     for info in node_infos:
         sub.nodes[info.name] = info

@@ -158,13 +158,16 @@ sections:
   # 子图声明（图中图，内部可含 ## [Node]）
   subgraph:
     heading: "# [SubGraph] Name"
-    description: "子图声明。两种形态：内部 `## [Node]` 节点列表（真子图）；或单行 `- **src**: path` 加载外部 skill 文件。允许递归嵌套"
+    description: "子图声明。两种形态：内部 `## [Node]` 节点列表（真子图）；或单行 `- **src**: path` 加载外部 skill 文件。允许递归嵌套（嵌套子图内部节点用 `### [Node]` 三级标题）"
     forms:
       nodes: "子图体含 `## [Node]` 子区块 → 形态 A（真子图，内部节点列表）"
       src: "子图体只有 `- **src**: path` → 加载外部 skill 文件"
+      nested: "子图体含 `## [SubGraph]` → 递归嵌套（内部节点用 `### [Node]`）"
     transition_notes:
       - "跳转到子图的边：`==>`（继承+合并）或 `==> X <==`（继承+覆盖 messages）；`->`（不继承）给 warning（不强制）"
       - "子图结束自动返回父图（LangGraph 子图 call/return）"
+      - "覆盖语义实现：子图内部把压缩结果写入 `deliverables[\"_child_messages\"]`（最终 messages 列表），父图子图节点后的后处理节点读取 `_replace_messages` 标志并整体替换父图 messages"
+      - "子图内部节点独立计数 loop（不污染父图）；子图作为父图节点执行计 1 次 loop"
 
 # ------------------------------------------------------------------------------
 # 3. 语义规则 (Semantics)

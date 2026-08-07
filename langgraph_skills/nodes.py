@@ -46,6 +46,7 @@ def create_node(
     run_skill: Optional[RunSkillFn] = None,
     settings: Optional[Settings] = None,
     triggers: Optional[List[Trigger]] = None,
+    subgraph_names: Optional[set] = None,
 ):
     """动态生成通用的 LangGraph 节点处理函数。
 
@@ -67,9 +68,13 @@ def create_node(
                     f"\n--- [Node: {node_info.name}] Context exceeded {node_info.max_context_length}, "
                     f"redirecting to subgraph '{redirect}' (loop not counted) ---"
                 )
+                pre_deliv = dict(deliverables)
+                if subgraph_names and redirect in subgraph_names:
+                    matching = next((t for t in node_info.transitions if t.next == redirect), None)
+                    pre_deliv["_replace_messages"] = bool(matching and matching.replace_messages)
                 return {
                     "next_state": redirect,
-                    "deliverables": deliverables,
+                    "deliverables": pre_deliv,
                     "loop_count": state.get("loop_count", 0),  # 不计 loop
                     "max_loops": state.get("max_loops", 10),
                     "current_node": node_info.name,
@@ -185,6 +190,10 @@ def create_node(
             "max_loops": new_max_loops,
             "current_node": node_info.name,
         }
+        # 跳转子图时，标记 replace_messages（==> X <== 覆盖语义由父图后处理节点执行）
+        if next_state and subgraph_names and next_state in subgraph_names:
+            matching_trans = next((t for t in node_info.transitions if t.next == next_state), None)
+            deliverables["_replace_messages"] = bool(matching_trans and matching_trans.replace_messages)
         if output_messages is not None:
             ret["messages"] = output_messages
         return ret

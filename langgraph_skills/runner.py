@@ -56,7 +56,7 @@ def run_skill(
     compiled = parse_compiled_skill(skill_path)
     node_dict = compiled.nodes
 
-    validation_errors = validate_node_graph(node_dict)
+    validation_errors = validate_node_graph(node_dict, subgraph_names=set(compiled.subgraphs.keys()))
     if validation_errors:
         err_msg = "\n".join(validation_errors)
         print(f"Validation Error: {err_msg}", file=sys.stderr)

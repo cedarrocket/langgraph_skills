@@ -50,8 +50,8 @@ def main() -> None:
         compiler.compile_skill(parsed.draft_path, parsed.output_path)
     elif parsed.command == "validate":
         try:
-            node_dict = parse_compiled_skill(parsed.skill_path, strict=settings.strict).nodes
-            errors = validate_node_graph(node_dict)
+            compiled = parse_compiled_skill(parsed.skill_path, strict=settings.strict)
+            errors = validate_node_graph(compiled.nodes, subgraph_names=set(compiled.subgraphs.keys()))
             if errors:
                 print("\n".join(errors), file=sys.stderr)
                 sys.exit(2)

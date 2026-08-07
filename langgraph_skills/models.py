@@ -34,14 +34,37 @@ RESERVED_OUTPUT = "output_path"
 DEFAULT_MAX_LOOPS = 10
 
 
+class ReplaceMessages:
+    """整体替换消息列表的标记类型（==> X <== 覆盖语义）。
+
+    子图后处理节点返回 messages: ReplaceMessages([...])，
+    自定义 reducer 检测到该类型即整体替换（而非 add_messages 合并）。
+    """
+
+    def __init__(self, messages: List[Any]):
+        self.messages = list(messages)
+
+
+def messages_reducer(current: Optional[list], incoming: Any) -> list:
+    """messages channel 的 reducer。
+
+    - 普通消息列表 → add_messages 合并（默认行为）
+    - ReplaceMessages 包裹 → 整体替换（==> X <== 覆盖语义）
+    """
+    if isinstance(incoming, ReplaceMessages):
+        return incoming.messages
+    merged = add_messages(current or [], incoming)
+    return list(merged) if not isinstance(merged, list) else merged
+
+
 class AgentState(TypedDict):
     """LangGraph 图上流动的状态。
 
-    `messages` 由 LangGraph 的 add_messages reducer 累积，
+    `messages` 由 messages_reducer 累积（支持整体替换），
     其余字段作为节点间传递的上下文。
     """
 
-    messages: Annotated[list, add_messages]
+    messages: Annotated[list, messages_reducer]
     global_instructions: str
     state_instructions: str
     deliverables: dict
@@ -72,6 +95,7 @@ class NodeInfo:
     transitions: List[Transition] = field(default_factory=list)
     is_final: bool = False
     node_type: str = NODE_LLM
+    subgraph: Optional["SubGraphInfo"] = None  # node_type=="subgraph" 时指向嵌套子图
     tools: List[str] = field(default_factory=list)
     src: Optional[str] = None  # script / skill 的路径
     interactive: bool = False
