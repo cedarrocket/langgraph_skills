@@ -10,6 +10,7 @@ from langgraph_skills.config import (
     expand_value,
     get_deepseek_key,
     load_config,
+    load_triggers,
     parse_model_ref,
 )
 
@@ -113,6 +114,29 @@ def test_load_config_merge_precedence(tmp_path, monkeypatch):
 def test_load_config_no_files(tmp_path):
     merged = load_config(global_path=tmp_path / "nope.json", project_path=tmp_path / "nope2.json")
     assert merged == {}
+
+
+def test_load_triggers_no_files(tmp_path):
+    assert load_triggers(global_path=tmp_path / "nope.json", project_path=tmp_path / "nope2.json") == []
+
+
+def test_load_triggers_expands_variables(tmp_path):
+    key_file = tmp_path / "key.txt"
+    key_file.write_text("sk-trigger", encoding="utf-8")
+    trig = tmp_path / "triggers.json"
+    trig.write_text(
+        json.dumps(
+            {
+                "triggers": [
+                    {"condition": "loop_count > 3", "on_trigger": f"{{file:{key_file}}}"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = load_triggers(global_path=trig, project_path=None)
+    assert len(result) == 1
+    assert result[0]["on_trigger"] == "sk-trigger"  # {file:} 已展开
 
 
 # ---------------------------------------------------------------------------
