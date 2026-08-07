@@ -57,6 +57,7 @@ class ExecutorResult:
     next_state: Optional[Any] = None  # str 或 str 列表（fan-out 多目标）
     payload: Optional[str] = None
     output_messages: Optional[List[BaseMessage]] = None
+    prompt_info: Optional[Dict[str, Any]] = None  # LLM 节点的 prompt 边界信息（长度/消息构成）
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +323,17 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
         out_msgs.append(HumanMessage(content=user_input))
         next_state = info.name
 
-    return ExecutorResult(next_state=next_state, payload=payload, output_messages=out_msgs)
+    return ExecutorResult(
+        next_state=next_state,
+        payload=payload,
+        output_messages=out_msgs,
+        prompt_info={
+            "prompt_messages": len(messages),  # 本节点 prompt 的消息条数
+            "prompt_chars": sum(len(getattr(m, "content", "") or "") for m in messages),
+            "input_start": len(state.get("messages", [])),  # 本次调用输入的消息起点（索引）
+            "input_msgs": len(state.get("messages", [])),  # 本次调用输入的消息条数
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

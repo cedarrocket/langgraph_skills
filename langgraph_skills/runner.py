@@ -107,6 +107,7 @@ def run_skill(
         "global_instructions": compiled.global_text,
         "state_instructions": node_dict[start_node].instructions,
         "deliverables": initial_deliverables if initial_deliverables is not None else {},
+        "spans": [],
         "next_state": "",
         "current_node": start_node,
         "loop_count": 0,

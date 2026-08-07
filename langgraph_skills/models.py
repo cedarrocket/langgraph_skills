@@ -74,11 +74,20 @@ def last_wins(current: Any, incoming: Any) -> Any:
     return incoming
 
 
+def append_list(current: Optional[list], incoming: Any) -> list:
+    """spans channel 的 reducer：追加合并（fan-in 时多分支的 span 记录全部保留）。"""
+    merged = list(current or [])
+    if isinstance(incoming, list):
+        merged.extend(incoming)
+    return merged
+
+
 class AgentState(TypedDict):
     """LangGraph 图上流动的状态。
 
     `messages` 由 messages_reducer 累积（支持整体替换），
     `deliverables` 由 merge_dicts 字段级合并（支持 fan-in 并行合并），
+    `spans` 记录每个节点调用的消息跨度（start/end 索引、类型），
     其余字段作为节点间传递的上下文。
     """
 
@@ -86,6 +95,7 @@ class AgentState(TypedDict):
     global_instructions: str
     state_instructions: str
     deliverables: Annotated[dict, merge_dicts]
+    spans: Annotated[list, append_list]
     current_node: Annotated[str, last_wins]
     next_state: Annotated[str, last_wins]
     loop_count: Annotated[int, last_wins]

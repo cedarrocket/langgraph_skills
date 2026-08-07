@@ -59,6 +59,7 @@ def create_node(
 
     def node_function(state: AgentState):
         deliverables = state.get("deliverables", {})
+        msg_start_idx = len(state.get("messages", []))
 
         # pre_node 检查点：上下文超限 → 提前 return 跳转（去压缩子图），不计 loop
         if node_info.max_context_length is not None:
@@ -78,6 +79,14 @@ def create_node(
                     "loop_count": state.get("loop_count", 0),  # 不计 loop
                     "max_loops": state.get("max_loops", 10),
                     "current_node": node_info.name,
+                    "spans": [{
+                        "node": node_info.name,
+                        "loop": state.get("loop_count", 0),
+                        "type": "pre_node_redirect",
+                        "start": msg_start_idx,
+                        "end": msg_start_idx,
+                        "target": redirect,
+                    }],
                 }
 
         current_loops = state.get("loop_count", 0) + 1
@@ -200,8 +209,25 @@ def create_node(
                 matching_trans = next((t for t in node_info.transitions if t.next == target), None)
                 if matching_trans and matching_trans.replace_messages:
                     deliverables["_replace_messages"] = True
+        # 消息归属：本节点产出的消息打 metadata（node/loop 标记，随消息持久保留）
         if output_messages is not None:
+            for m in output_messages:
+                meta = dict(getattr(m, "metadata", None) or {})
+                meta.setdefault("node", node_info.name)
+                meta.setdefault("loop", current_loops)
+                setattr(m, "metadata", meta)  # BaseMessage.metadata 为实例属性
             ret["messages"] = output_messages
+        # 跨度追踪：本节点调用的消息区间（start/end 索引，fan-in 时多分支 span 全部保留）
+        span: Dict[str, Any] = {
+            "node": node_info.name,
+            "loop": current_loops,
+            "type": node_info.node_type,
+            "start": msg_start_idx,
+            "end": msg_start_idx + (len(output_messages) if output_messages else 0),
+        }
+        if result.prompt_info:
+            span["prompt"] = result.prompt_info
+        ret["spans"] = [span]
         return ret
 
     return node_function

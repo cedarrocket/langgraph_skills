@@ -238,6 +238,13 @@ semantics:
     input_rule: "input_path 读入内容 -> deliverables['payload']（唯一显式规则）"
     output_rule: "最终 payload 写出（stdout 或 writer 工具），其余为日志走 stderr"
 
+  # 消息归属与跨度追踪（自动能力，无需 DSL 声明）
+  message_provenance:
+    metadata: "每个节点产出的消息自动打 metadata（node/loop 标记），随 add_messages 持久保留（合并/去重不丢失）——用于按节点分组检索消息"
+    spans: "每次节点调用记录 span（node/loop/type/start/end），存 AgentState.spans（append 合并，fan-out 多分支全部保留）；start/end 是该次调用在 messages 中的消息区间（起始点/结束点）"
+    prompt_boundary: "LLM 节点的 span 附 prompt 信息（prompt_messages/prompt_chars/input_msgs/input_start）——本节点 prompt 构造的消息条数/字符数、输入消息条数（delivery 边界）"
+    langgraph_recommended: "官方推荐：消息 metadata + 自定义 reducer channel（本实现即此方案）"
+
   # Trigger（统一介入机制）—— 独立于 DSL 语法，见 PROCESS.md §7.6
   triggers:
     config_file: "独立 triggers.json（全局 ~/.config/langgraph_skills/ + 项目根，列表拼接）"
