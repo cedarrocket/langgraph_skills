@@ -180,6 +180,42 @@ def test_run_handler_reassign_messages_does_not_affect_state(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# compact() 注入（安全的上下文压缩接口）
+# ---------------------------------------------------------------------------
+
+
+def test_run_handler_compact_api(tmp_path):
+    """handler 用 compact(keep_last) 应安全裁剪真实图状态。"""
+    handler = tmp_path / "compact_api.py"
+    handler.write_text("n = compact(2)\n", encoding="utf-8")
+    state_messages = [HumanMessage(content=f"m{i}") for i in range(8)]
+    scope = {"deliverables": {}, "messages": state_messages, "loop_count": 1, "current_node": "A"}
+    run_handler(str(handler), scope)
+    assert len(state_messages) == 2  # compact 用切片赋值，真实生效
+
+
+def test_run_handler_compact_negative_rejected(tmp_path):
+    """compact 负数应报错（不静默）。"""
+    handler = tmp_path / "bad_compact.py"
+    handler.write_text("compact(-1)\n", encoding="utf-8")
+    state_messages = [HumanMessage(content="m0")]
+    scope = {"deliverables": {}, "messages": state_messages, "loop_count": 1, "current_node": "A"}
+    run_handler(str(handler), scope)  # 异常被捕获，不抛出
+    assert len(state_messages) == 1  # 未裁剪
+
+
+def test_evaluate_pyfunction_has_compact(tmp_path):
+    """pyfunction 条件环境也应注入 compact()。"""
+    script = tmp_path / "check_compact.py"
+    script.write_text("compact(1)\nif len(messages) == 1:\n    trigger_result(True)\n", encoding="utf-8")
+    t = Trigger(condition=f"pyfunction:{script}")
+    state_messages = [HumanMessage(content=f"m{i}") for i in range(5)]
+    scope = {"deliverables": {}, "messages": state_messages, "loop_count": 2, "current_node": "A"}
+    assert evaluate_condition(t, scope) is True
+    assert len(state_messages) == 1
+
+
+# ---------------------------------------------------------------------------
 # 集成：create_node 的 post_node 检查点
 # ---------------------------------------------------------------------------
 

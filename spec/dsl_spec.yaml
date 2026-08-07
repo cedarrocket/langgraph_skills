@@ -212,7 +212,7 @@ semantics:
       description: "解析时静态检查条件表达式：语法错误 / 未定义变量 -> error"
       safety_note: "MVP 允许一切函数调用，留 ALLOWED_AST_NODES 安全架子"
     handler:
-      description: "on_trigger 指定外部处理程序，复用 type:script 注入（deliverables/messages/transition_to 等）"
-      semantics: "处理程序自行决定改状态/拦截/重试/压缩；未来留 compact() 统一接口"
+      description: "on_trigger 指定外部处理程序，复用 type:script 注入（deliverables/messages/transition_to/compact 等）"
+      semantics: "处理程序自行决定改状态/拦截/重试/压缩；compact(keep_last) 提供安全的消息裁剪接口（切片赋值，真实作用于图状态）"
     sugar_unification:
       description: "DSL 语法糖（max_loops/history_window/require_approval）与 trigger 底层统一（语法糖保留 DSL，JSON 存在时允许语法糖缺失）"

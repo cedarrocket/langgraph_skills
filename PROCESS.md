@@ -194,8 +194,8 @@ require_approval    → {on_transition, 内置 safe_input 审批}
 #### 触发处理程序
 
 - 复用 type:script 执行（读 on_trigger 文件，注入 deliverables/messages/get_payload/transition_to）
-- 处理程序自行决定：改状态 / 拦截（不跳转）/ 重试（transition_to 本节点）/ 压缩（改 messages）
-- 未来留 `compact()` 统一接口（MVP 靠处理器自己改 messages）
+- 处理程序自行决定：改状态 / 拦截（不跳转）/ 重试（transition_to 本节点）/ 压缩
+- **`compact(keep_last)` 已实现**：注入 handler/pyfunction 环境，切片赋值安全裁剪 messages（真实作用于图状态；`messages = [...]` 重新赋值不生效是易踩的坑，用 compact 避免）
 
 #### 表达式静态检查（解析时，非运行时）
 
@@ -212,11 +212,11 @@ def check_condition_expr(expr, scope_vars):
 
 | 模块 | 改动 |
 |---|---|
-| 新增 `triggers.py` | Trigger 数据类、注册表、检查点分发、condition 求值、表达式静态检查 |
+| 新增 `triggers.py` | Trigger 数据类、注册表、检查点分发、condition 求值、表达式静态检查、compact() 注入 |
 | `config.py` | 加载 triggers.json（全局 + 项目合并）、解析 triggers 段 |
 | `parser.py` | 语法糖归一化时注册为内置 trigger；解析 triggers.json 引用 |
 | `models.py` | Trigger dataclass、NodeInfo/CompiledSkill 增加 trigger 字段 |
-| `executors.py` | pre_llm 检查点（invoke 前，~L245）、on_error 检查点；compact() 注入架子 |
+| `executors.py` | pre_llm 检查点（invoke 前，~L245）、on_error 检查点 |
 | `nodes.py` | post_node 检查点（~L139 前）调用 trigger 分发 |
 | `graph.py`/`runner.py` | 传递 triggers 配置到节点工厂 |
 

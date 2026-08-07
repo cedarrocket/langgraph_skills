@@ -16,7 +16,7 @@ from __future__ import annotations
 import ast
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 # 检查点类型
 CHECKPOINT_PRE_LLM = "pre_llm"
@@ -112,12 +112,33 @@ def evaluate_condition(trigger: Trigger, scope: Dict[str, Any]) -> bool:
     return bool(result)
 
 
+def _make_compact(scope: Dict[str, Any]) -> Callable[[int], int]:
+    """构造 compact(keep_last) 注入函数：把 messages 裁剪为保留最近 N 条。
+
+    用切片赋值 messages[:] 修改 list 对象内容（真实作用于图状态），
+    避免 `messages = [...]` 重新赋值不生效的坑（见 PROCESS.md §7.6）。
+    返回裁剪后的消息数。
+    """
+
+    def compact(keep_last: int) -> int:
+        msgs = scope.get("messages", [])
+        if not isinstance(keep_last, int) or isinstance(keep_last, bool):
+            raise TypeError(f"compact(keep_last) expects an int, got {type(keep_last).__name__}")
+        if keep_last < 0:
+            raise ValueError(f"compact(keep_last) expects keep_last >= 0, got {keep_last}")
+        if isinstance(msgs, list):
+            del msgs[: max(0, len(msgs) - keep_last)]
+        print(f"  [Trigger] compacted messages to last {keep_last} (now {len(msgs)})")
+        return len(msgs)
+
+    return compact
+
+
 def _eval_pyfunction(script_path: str, scope: Dict[str, Any]) -> bool:
     """执行 pyfunction 脚本，返回 True 即触发。
 
-    注入环境：deliverables/messages/get_payload + 只读的当前状态。
-    脚本可用 `trigger_result(True)` 显式触发，或直接 `return True`（exec 不捕获 return，
-    故统一用 trigger_result 语义；也支持脚本内定义 result 变量）。
+    注入环境：deliverables/messages/get_payload/compact + 只读的当前状态。
+    脚本可用 `trigger_result(True)` 显式触发。
     """
     if not os.path.exists(script_path):
         print(f"  [Trigger] pyfunction file not found: {script_path}")
@@ -130,6 +151,7 @@ def _eval_pyfunction(script_path: str, scope: Dict[str, Any]) -> bool:
         "deliverables": scope.get("deliverables", {}),
         "messages": scope.get("messages", []),
         "get_payload": lambda: scope.get("deliverables", {}).get("payload"),
+        "compact": _make_compact(scope),
         "context_length": scope.get("context_length", 0),
         "loop_count": scope.get("loop_count", 0),
         "error_flag": scope.get("error_flag", False),
@@ -167,6 +189,7 @@ def run_handler(handler_path: str, scope: Dict[str, Any]) -> None:
         "deliverables": scope.get("deliverables", {}),
         "messages": scope.get("messages", []),
         "get_payload": lambda: scope.get("deliverables", {}).get("payload"),
+        "compact": _make_compact(scope),
         "transition_to": scope.get("transition_to", lambda *a, **k: None),
         "context_length": scope.get("context_length", 0),
         "loop_count": scope.get("loop_count", 0),
