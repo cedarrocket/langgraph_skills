@@ -29,7 +29,7 @@
    - 支持定义 `type: skill` 的嵌套节点。解释器将自动挂起当前图并递归流转子图。子图流转完成后，其 deliverables payload 将无缝继承回父图上下文。
 
 6. **对话历史自动切片隔离 (Anti-Prompt Pollution)**：
-   - 彻底解决了状态跳转时的 prompt 污染问题。只有在状态内自循环（如交互对话、类型纠错循环）时保留消息历史；一旦发生状态节点流转，立即自动启动新会话，只携带 System Prompt 与上游 Payload。
+   - 彻底解决了状态跳转时的 prompt 污染问题。节点流转时默认启动新会话（零继承），只携带 System Prompt 与上游 Payload；若需下游节点看到上游消息历史，可在跳转中使用 `==>`（如 `- Default ==> NextNode` 或表格中 `==> NextNode`）。
 
 ---
 

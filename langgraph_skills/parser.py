@@ -110,6 +110,10 @@ def parse_markdown_table_transitions(lines: list) -> List[Transition]:
         row_dict = dict(zip(header, parts))
         next_state = row_dict.get("next node") or row_dict.get("next state") or row_dict.get("next") or row_dict.get("next_state")
         if next_state:
+            # == 前缀（如 "==> Fix"）表示继承消息历史
+            inherit_history = "==>" in next_state
+            if inherit_history:
+                next_state = next_state.replace("==>", "").strip()
             cond = row_dict.get("condition") or row_dict.get("cond")
             if cond and cond.lower() in ("default", "none", "", "any"):
                 cond = None
@@ -124,6 +128,7 @@ def parse_markdown_table_transitions(lines: list) -> List[Transition]:
                     next=next_state,
                     feedback=feedback,
                     require_approval=require_approval,
+                    inherit_history=inherit_history,
                 )
             )
     return transitions
@@ -138,25 +143,31 @@ def parse_markdown_list_transitions(lines: list) -> List[Transition]:
         if stripped.startswith(("-", "*", "+")):
             item = stripped[1:].strip()
 
-            # Default -> TargetState
-            if "default" in item.lower() and "->" in item:
-                right_side = item.split("->", 1)[1].strip()
+            # 箭头：==>（继承消息历史）优先于 ->（不继承，现状）
+            arrow = "==>" if "==>" in item else "->"
+            inherit_history = arrow == "==>"
+            if arrow not in item:
+                continue
+
+            # Default ==> TargetState / Default -> TargetState
+            if "default" in item.lower():
+                right_side = item.split(arrow, 1)[1].strip()
                 require_approval = "[require approval]" in right_side.lower() or "(require approval)" in right_side.lower()
                 next_state = right_side.split("(")[0].split("[")[0].strip()
                 transitions.append(
-                    Transition(next=next_state, require_approval=require_approval)
+                    Transition(next=next_state, require_approval=require_approval, inherit_history=inherit_history)
                 )
                 continue
 
-            # If `cond` -> TargetState (Feedback: "...") [Require Approval]
-            if "if" in item.lower() and "->" in item:
+            # If `cond` ==> TargetState (Feedback: "...") [Require Approval]
+            if "if" in item.lower():
                 cond_match = re.search(r"(?i)if\s+`([^`]+)`", item)
                 if cond_match:
                     cond = cond_match.group(1).strip()
                 else:
-                    cond = item.split("->", 1)[0].replace("if", "", 1).strip()
+                    cond = item.split(arrow, 1)[0].replace("if", "", 1).strip()
 
-                right_side = item.split("->", 1)[1].strip()
+                right_side = item.split(arrow, 1)[1].strip()
                 require_approval = "[require approval]" in right_side.lower() or "(require approval)" in right_side.lower()
 
                 feedback = None
@@ -170,7 +181,13 @@ def parse_markdown_list_transitions(lines: list) -> List[Transition]:
 
                 next_state = right_side.split("(")[0].split("[")[0].strip()
                 transitions.append(
-                    Transition(condition=cond, next=next_state, feedback=feedback, require_approval=require_approval)
+                    Transition(
+                        condition=cond,
+                        next=next_state,
+                        feedback=feedback,
+                        require_approval=require_approval,
+                        inherit_history=inherit_history,
+                    )
                 )
     return transitions
 

@@ -284,3 +284,59 @@ def test_no_tool_calls_final_node_no_payload():
 
     assert result.next_state is None
     assert result.payload is None  # final 节点不产生 payload
+
+
+# ---------------------------------------------------------------------------
+# ==> 消息继承（跨节点）
+# ---------------------------------------------------------------------------
+
+
+def _cross_node_state(msgs, inherit_history):
+    """构造"从源节点 A 跳到目标节点"的状态（current_node=A，执行 B）。"""
+    return AgentState(
+        messages=msgs,
+        global_instructions="",
+        state_instructions="",
+        deliverables={"start_msg_index": 0, "_inherit_history": inherit_history},
+        current_node="A",  # 源节点
+        next_state="",
+        loop_count=2,
+        max_loops=10,
+    )
+
+
+def test_inherit_history_keeps_source_messages():
+    llm = FakeLLM([_mk_llm_response()])
+    msgs = [HumanMessage(content="from_A1"), HumanMessage(content="from_A2")]
+    state = _cross_node_state(msgs, inherit_history=True)
+    info = _node(name="B", transitions=[Transition(next="C")])
+    ctx = _ctx(info, llm, state=state)
+    execute_llm(ctx)
+
+    sent = llm.invoke_calls[0]
+    assert len(sent) == 3  # sys_prompt + 2 条继承的历史
+    assert sent[1].content == "from_A1"
+    assert sent[2].content == "from_A2"
+
+
+def test_no_inherit_resets_to_empty():
+    llm = FakeLLM([_mk_llm_response()])
+    msgs = [HumanMessage(content="from_A1"), HumanMessage(content="from_A2")]
+    state = _cross_node_state(msgs, inherit_history=False)
+    info = _node(name="B", transitions=[Transition(next="C")])
+    ctx = _ctx(info, llm, state=state)
+    execute_llm(ctx)
+
+    sent = llm.invoke_calls[0]
+    assert len(sent) == 1  # 只有 sys_prompt，历史清零
+
+
+def test_inherit_history_consumed_once():
+    llm = FakeLLM([_mk_llm_response(), _mk_llm_response()])
+    msgs = [HumanMessage(content="from_A1")]
+    state = _cross_node_state(msgs, inherit_history=True)
+    info = _node(name="B", transitions=[Transition(next="C")])
+    ctx = _ctx(info, llm, state=state)
+    execute_llm(ctx)
+    # 第一次消费后清除标记
+    assert state["deliverables"].get("_inherit_history") is False

@@ -59,6 +59,7 @@ class Transition:
     next: str = ""  # 目标状态名
     feedback: Optional[str] = None  # 跳转时回传给目标状态的反馈
     require_approval: bool = False  # 是否需人工审批
+    inherit_history: bool = False  # True（==>）：目标节点继承源节点的消息历史；False（->）：不继承（现状）
 
 
 @dataclass

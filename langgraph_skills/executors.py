@@ -152,6 +152,9 @@ def execute_skill(ctx: ExecutorContext) -> ExecutorResult:
     )
 
     next_state = info.transitions[0].next if info.transitions else None
+    ctx.state["deliverables"]["_inherit_history"] = (
+        bool(getattr(info.transitions[0], "inherit_history", False)) if info.transitions else False
+    )
     return ExecutorResult(next_state=next_state, payload=child_deliverables.get("payload", ""))
 
 
@@ -203,7 +206,7 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
             f"matches this JSON Schema:\n```json\n{json.dumps(info.output_schema, indent=2, ensure_ascii=False)}\n```"
         )
     if state["deliverables"]:
-        params = {k: v for k, v in state["deliverables"].items() if k not in ("feedback", "start_msg_index", "exit_code", "payload")}
+        params = {k: v for k, v in state["deliverables"].items() if k not in ("feedback", "start_msg_index", "exit_code", "payload", "_inherit_history")}
         if params:
             sys_prompt += "\n\n[Current Deliverables & CLI Parameters]:"
             for k, v in params.items():
@@ -229,8 +232,15 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
         state["deliverables"]["start_msg_index"] = 0
         current_node_messages = state["messages"]
     elif info.name != state["current_node"]:
-        state["deliverables"]["start_msg_index"] = len(state["messages"])
-        current_node_messages = []
+        if state["deliverables"].get("_inherit_history", False):
+            # ==> 跳转：继承源节点的消息历史（游标不重置，从源节点起点继续看）
+            start_idx = state["deliverables"].get("start_msg_index", 0)
+            current_node_messages = state["messages"][start_idx:]
+            state["deliverables"]["_inherit_history"] = False  # 一次性继承，用完清除
+        else:
+            # -> 跳转（默认）：重置游标，本节点从空开始（现状零继承）
+            state["deliverables"]["start_msg_index"] = len(state["messages"])
+            current_node_messages = []
     else:
         start_idx = state["deliverables"]["start_msg_index"]
         current_node_messages = state["messages"][start_idx:]
@@ -267,6 +277,7 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
                     deliverables["feedback"] = matching_trans.feedback
                 else:
                     deliverables["feedback"] = None
+                deliverables["_inherit_history"] = bool(matching_trans and matching_trans.inherit_history)
                 print(f"  -> Model triggered transition: {next_state}")
                 from langchain_core.messages import ToolMessage
 
@@ -279,6 +290,7 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
         if not need_submit_result and info.transitions:
             next_state = info.transitions[0].next
             payload = response.content
+            deliverables["_inherit_history"] = info.transitions[0].inherit_history
             print(f"  -> Auto-transition to: {next_state} (unconditional)")
             triggered_transition = True
 

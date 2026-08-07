@@ -10,7 +10,8 @@
           "condition": null,
           "next": "Win",
           "feedback": null,
-          "require_approval": false
+          "require_approval": false,
+          "inherit_history": false
         }
       ],
       "is_final": false,

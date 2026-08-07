@@ -10,7 +10,8 @@
           "condition": null,
           "next": "CompileReport",
           "feedback": null,
-          "require_approval": false
+          "require_approval": false,
+          "inherit_history": false
         }
       ],
       "is_final": false,
@@ -32,13 +33,15 @@
           "condition": "topic unclear",
           "next": "SearchInfo",
           "feedback": "Clarify the topic.",
-          "require_approval": false
+          "require_approval": false,
+          "inherit_history": false
         },
         {
           "condition": "findings complete",
           "next": "FormatReport",
           "feedback": null,
-          "require_approval": true
+          "require_approval": true,
+          "inherit_history": false
         }
       ],
       "is_final": false,

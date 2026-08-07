@@ -130,3 +130,72 @@ def test_node_missing_name_raises(tmp_path):
     )
     with pytest.raises(ParseError, match="missing name"):
         parse_compiled_skill(path)
+
+
+# ---------------------------------------------------------------------------
+# ==> 消息继承语法
+# ---------------------------------------------------------------------------
+
+
+def test_list_transition_inherit_history(tmp_path):
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **is_final**: true
+
+## [Transitions]
+- Default ==> Finish
+
+# [Node] Finish
+- **is_final**: true
+""",
+    )
+    compiled = parse_compiled_skill(path)
+    t = compiled.nodes["A"].transitions[0]
+    assert t.next == "Finish"
+    assert t.inherit_history is True
+
+
+def test_list_transition_no_inherit_default(tmp_path):
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **is_final**: true
+
+## [Transitions]
+- Default -> Finish
+
+# [Node] Finish
+- **is_final**: true
+""",
+    )
+    compiled = parse_compiled_skill(path)
+    t = compiled.nodes["A"].transitions[0]
+    assert t.next == "Finish"
+    assert t.inherit_history is False
+
+
+def test_table_transition_inherit_history_prefix(tmp_path):
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **is_final**: true
+
+## [Transitions]
+| Condition | Next Node | Require Approval | Feedback |
+| :--- | :--- | :--- | :--- |
+| done | ==> Fix | no | |
+| unclear | Reask | no | |
+
+# [Node] Fix
+- **is_final**: true
+
+# [Node] Reask
+- **is_final**: true
+""",
+    )
+    compiled = parse_compiled_skill(path)
+    t_inherit = next(t for t in compiled.nodes["A"].transitions if t.next == "Fix")
+    t_normal = next(t for t in compiled.nodes["A"].transitions if t.next == "Reask")
+    assert t_inherit.inherit_history is True
+    assert t_normal.inherit_history is False

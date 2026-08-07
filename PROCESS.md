@@ -228,21 +228,22 @@ triggers.py 核心 → 检查点埋点 → 语法糖展开 → triggers.json 加
 
 - 触发处理程序是否需显式 `trigger_result`（拦截/放行）注入，还是 MVP 靠"改状态+不跳转"隐式表达（倾向后者）
 
-### 7.6.1 上下文压缩流程设计（已确认，待实施）
+### 7.6.1 上下文压缩流程设计（部分实施，其余待实施）
 
 > 目标：解决"零继承 message history"导致的**下游失明**与**死数据累积**问题。
 > 核心机制：pre_node 检查点拦截超长上下文 → 跳转压缩子图 → 压缩后回本节点重跑。
+> **实现状态：决策 1（==> 消息继承）已实现**（parser/executors/spec/两个 compiler 同步，121 测试全绿）；其余待实施。
 
-#### 设计决策（全部已锁定）
+#### 设计决策
 
-| # | 决策 |
-|---|---|
-| 1 | **消息继承 = 选项 A**：节点可见 = 继承的 payload（deliverables）+ **本节点全部 message history**（不做 inherit: N 复杂语法） |
-| 2 | **pre_node 检查点**：节点开头（executor 之前）执行 trigger；检测到上下文超标 → **提前 return** 跳过本节点（超长报文不构造、不传 LLM） |
-| 3 | **信号机制 = 方案 A（提前 return）**：`node_function` 在 executor 之前 `return {"next_state": 子图节点名}`，router 自动跳转；不用 Python 异常（B） |
-| 4 | **transition 表格定义特殊触发**：`Condition` 加 `if:` 前缀（如 `if:context_length > 5000`）→ 程序化条件（pre_node 求值）；普通文本 → 现有 LLM 提示语义 |
-| 5 | **CompactionNode = 标准子图节点**（`type: skill` 子图，内部可多节点）；执行完回本节点重跑（子图 call/return，LangGraph 原生） |
-| 6 | **loop 计数语义**：子图整体算 1 次（内部节点不额外计数）；**trigger 触发跳转不计 loop**（只有节点正常执行完成才 +1） |
+| # | 决策 | 状态 |
+|---|---|---|
+| 1 | **消息继承 = `==>` 语法**：列表 `- Default ==> Target`、表格 Next Node 单元格 `==> Target` → 目标节点继承源节点消息历史（游标不重置）；默认 `->` 不继承（现状零继承） | ✅ **已实现** |
+| 2 | **pre_node 检查点**：节点开头（executor 之前）执行 trigger；检测到上下文超标 → **提前 return** 跳过本节点（超长报文不构造、不传 LLM） | ⏳ 待实施 |
+| 3 | **信号机制 = 方案 A（提前 return）**：`node_function` 在 executor 之前 `return {"next_state": 子图节点名}`，router 自动跳转；不用 Python 异常（B） | ⏳ 待实施 |
+| 4 | ~~transition 表格 `if:` 前缀~~（确认从未实现，**不引入**） | ❌ 取消 |
+| 5 | **CompactionNode = 标准子图节点**（`type: skill` 子图，内部可多节点）；执行完回本节点重跑（子图 call/return，LangGraph 原生） | ⏳ 待实施 |
+| 6 | **loop 计数语义**：子图整体算 1 次（内部节点不额外计数）；**trigger 触发跳转不计 loop**（只有节点正常执行完成才 +1） | ⏳ 待实施 |
 
 #### 机制图
 
@@ -265,18 +266,22 @@ triggers.py 核心 → 检查点埋点 → 语法糖展开 → triggers.json 加
   └─ 子图结束 → 父图边回 [N]（重跑，此时已压缩）
 ```
 
-#### transition 表格形态
+#### transition 语法（决策 1 已实现）
 
 ```markdown
 # [Node] Analyze
 ## [Transitions]
 | Condition | Next Node | Require Approval | Feedback |
-| if:context_length > 5000 | CompactionNode | no | 上下文过长，先去压缩 |
-| done | Fix | no | 带上分析结论 |
+| done | ==> Fix | no | 带上分析结论（继承 Analyze 的消息历史） |
+| unclear | Reask | no | 重新问（不继承） |
+
+# 列表形式
+- Default ==> Fix          # 继承消息历史
+- Default -> Reask          # 不继承（默认）
 ```
 
-- `if:` 前缀 → 程序化条件（pre_node 求值，作用域 = context_length/loop_count/deliverables/error_flag）
-- 普通文本 → LLM 提示（现状语义，零破坏）
+- `==>`：目标节点继承源节点消息历史（游标不重置，从源节点起点继续看）；默认 `->` 不继承（零继承，现状）
+- 已实现：parser（表格/列表）、executors（游标逻辑 + _inherit_history 标记）、spec/两个 compiler 同步
 
 #### 关键事实（LangGraph 实测）
 

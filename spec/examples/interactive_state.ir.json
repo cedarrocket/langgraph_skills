@@ -10,13 +10,15 @@
           "condition": "user says end and requirements are clear",
           "next": "GenerateDoc",
           "feedback": "Proceed to generate document.",
-          "require_approval": false
+          "require_approval": false,
+          "inherit_history": false
         },
         {
           "condition": "requirements need further clarification",
           "next": "Refine",
           "feedback": "Continue clarifying.",
-          "require_approval": false
+          "require_approval": false,
+          "inherit_history": false
         }
       ],
       "is_final": false,

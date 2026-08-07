@@ -10,7 +10,8 @@
           "condition": null,
           "next": "GenerateInfoChild",
           "feedback": null,
-          "require_approval": false
+          "require_approval": false,
+          "inherit_history": false
         }
       ],
       "is_final": false,
@@ -30,7 +31,8 @@
           "condition": null,
           "next": "ReportResult",
           "feedback": null,
-          "require_approval": false
+          "require_approval": false,
+          "inherit_history": false
         }
       ],
       "is_final": false,

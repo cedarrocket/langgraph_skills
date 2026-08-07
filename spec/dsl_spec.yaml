@@ -138,13 +138,14 @@ sections:
         forms:
           table:
             columns: [Condition, Next Node, Require Approval, Feedback]
-            description: "多条件/带审批的跳转用表格"
+            description: "多条件/带审批的跳转用表格；Next Node 单元格加 `==>` 前缀（如 `==> Fix`）表示继承源节点的消息历史"
             optional_columns: [Condition, Require Approval, Feedback]
           list:
             syntax: |
-              - Default -> TargetState
+              - Default -> TargetState          # 不继承消息历史（默认）
+              - Default ==> TargetState         # 继承源节点的消息历史
               - If `cond` -> TargetState (Feedback: "...") [Require Approval]
-            description: "单跳转或简单条件用列表"
+            description: "单跳转或简单条件用列表；`==>` 表示继承消息历史，`->` 表示不继承（默认）"
       output:
         headings: ["## [Output JSON]", "## [Output Schema]", "## [Output]"]
         description: "输出 JSON Schema 约束；内容为 JSON 文本（可带 ```json 围栏）"
@@ -176,6 +177,10 @@ semantics:
       description: "跳转前需人工审批"
     feedback:
       description: "跳转时回传给目标状态的反馈文本"
+    inherit_history:
+      syntax: "`==>`（列表）或 Next Node 单元格 `==> Fix`（表格）"
+      semantics: "目标节点继承源节点的消息历史（游标不重置，从源节点起点继续看）；默认 `->` 不继承（零继承，现状）"
+      scope: "仅继承源节点自己产生的消息（源节点可见范围）"
 
   # 循环预算
   max_loops:
