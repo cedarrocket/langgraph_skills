@@ -42,7 +42,7 @@ def safe_input(prompt: str) -> str:
 
 def run_skill(
     skill_path: str,
-    user_input: str = "User Input: What is Quantum Computing?",
+    user_input: str = "",
     initial_deliverables: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     print(f"1. Parsing and compiling skill graph: {skill_path}...", file=sys.stderr)
@@ -117,7 +117,7 @@ def run_cli(skill_file: str, remaining_args: List[str]) -> None:
     # Parse CLI options
     initial_deliverables = {}
 
-    user_input = "Start."
+    user_input = ""
     show_help = False
 
     # Check if piping stdin (non-TTY)

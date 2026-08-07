@@ -48,6 +48,7 @@ langraph_skills/
 ├── langgraph.json                     # LangGraph Studio 集成配置
 ├── studio_app.py                      # LangGraph Studio 入口（导出 graph 变量）
 ├── mypy_check.py                      # 编程助手/审查器运行 mypy 时调用的外部校验脚本
+├── validate_syntax.py                 # 自举编译器（bootstrap_compiled.md）语法校验所用的外部脚本
 ├── test_broken.py                     # 用于审查器自修复测试的“破损” Python 代码
 │
 ├── langgraph_skills/                  # 核心 Python 源代码包

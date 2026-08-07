@@ -22,10 +22,10 @@ Rules:
    - For multiple conditional transitions (e.g., table or rules), use a Markdown table:
      | Condition | Next Node | Require Approval | Feedback |
      | :--- | :--- | :--- | :--- |
-      | expression_1 | Node_A | yes | msg_A |
-      | expression_2 | Node_B | no | msg_B |
+     | expression_1 | Node_A | yes | msg_A |
+     | expression_2 | Node_B | no | msg_B |
    - For a single unconditional transition, you can just use a list item:
-      - Default -> TargetNode
+     - Default -> TargetNode
    - If the user wrote informal transition descriptions or shorthand (e.g., "go to Win", "跳转到 Finish"), translate them into standard list or table transitions.
    - If the user did not write any transition logic for a non-final node, do not output any transitions; the interpreter will automatically fallback to sequential execution.
 3. Preserve the global instructions (text before the first top-level section) and each node's task instructions unchanged, except for formatting them into standard markdown blocks.

@@ -1,8 +1,12 @@
-"""从 spec/dsl_spec.yaml 生成 compiler.py 的 COMPILER_PROMPT。
+"""从 spec/dsl_spec.yaml 生成编译器的 prompt，保证与 parser 同构。
+
+生成两个变体：
+  - python 版：langgraph_skills/compiler.py 的 COMPILER_PROMPT（含 {draft} 占位符）
+  - skill 版：bootstrap_compiled.md 中 CompileDraft 节点的 instructions（草稿经 payload 传入）
 
 用法:
-    python scripts/gen_compiler_prompt.py              # 更新 langgraph_skills/compiler.py
-    python scripts/gen_compiler_prompt.py --stdout     # 打印 prompt 到 stdout
+    python scripts/gen_compiler_prompt.py              # 更新 compiler.py + bootstrap_compiled.md
+    python scripts/gen_compiler_prompt.py --stdout     # 打印 python 版 prompt 到 stdout
 
 设计（方案 A）:
     语法事实（section 定义、默认值、transition 语法、语义规则）从 spec 生成；
@@ -19,6 +23,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = ROOT / "spec" / "dsl_spec.yaml"
 COMPILER_PATH = ROOT / "langgraph_skills" / "compiler.py"
+BOOTSTRAP_PATH = ROOT / "bootstrap_compiled.md"
 
 # ---------------------------------------------------------------------------
 # 人工措辞模板（教学/语气部分，不来自 spec）
@@ -29,12 +34,19 @@ Your task is to read a draft skill written by a human (which might have loose sy
 RULES_INTRO = """Rules:
 """
 
-FOOTER = """Output ONLY the compiled Markdown containing the valid `# [Node]` and `## [Transitions]` structures. Do not wrap the output in markdown code blocks unless the input draft itself was wrapped.
+# python 版结尾（含 {draft} 占位符，供 compiler.py 模板使用）
+FOOTER_PY = """Output ONLY the compiled Markdown containing the valid `# [Node]` and `## [Transitions]` structures. Do not wrap the output in markdown code blocks unless the input draft itself was wrapped.
 If the input draft has a shebang line (e.g., #!...) or a # [Config] / # [IO] block, you MUST fully preserve them exactly as-is at the very top of the compiled output.
 
 Draft Skill:
 {draft}
 """
+
+# skill 版结尾（草稿经 payload 传入，末尾加引导语）
+FOOTER_SKILL = """Output ONLY the compiled Markdown containing the valid `# [Node]` and `## [Transitions]` structures. Do not wrap the output in markdown code blocks unless the input draft itself was wrapped.
+If the input draft has a shebang line (e.g., #!...) or a # [Config] / # [IO] block, you MUST fully preserve them exactly as-is at the very top of the compiled output.
+
+Please compile the draft content provided below:"""
 
 
 # ---------------------------------------------------------------------------
@@ -60,10 +72,10 @@ def render_transition_rules(spec: Dict[str, Any]) -> str:
    - For multiple conditional transitions (e.g., table or rules), use a Markdown table:
      | Condition | Next Node | Require Approval | Feedback |
      | :--- | :--- | :--- | :--- |
-      | expression_1 | Node_A | yes | msg_A |
-      | expression_2 | Node_B | no | msg_B |
+     | expression_1 | Node_A | yes | msg_A |
+     | expression_2 | Node_B | no | msg_B |
    - For a single unconditional transition, you can just use a list item:
-      - Default -> TargetNode
+     - Default -> TargetNode
    - If the user wrote informal transition descriptions or shorthand (e.g., "go to Win", "跳转到 Finish"), translate them into standard list or table transitions.
    - If the user did not write any transition logic for a non-final node, do not output any transitions; the interpreter will automatically fallback to sequential execution."""
 
@@ -75,11 +87,11 @@ def render_section_rules(spec: Dict[str, Any]) -> str:
 5. Unknown sections are allowed (source is markdown-first) and must be preserved verbatim as natural language."""
 
 
-def build_prompt(spec: Dict[str, Any]) -> str:
+def build_prompt(spec: Dict[str, Any], footer: str) -> str:
     rules = "\n".join(
         [RULES_INTRO, render_node_rules(spec), render_transition_rules(spec), render_section_rules(spec)]
     )
-    return f"{HEADER}\n\n{rules}\n\n{FOOTER}"
+    return f"{HEADER}\n\n{rules}\n\n{footer}"
 
 
 # ---------------------------------------------------------------------------
@@ -98,16 +110,44 @@ def update_compiler(prompt: str) -> None:
         COMPILER_PATH.write_text(updated, encoding="utf-8")
         print(f"Updated: {COMPILER_PATH}", file=sys.stderr)
     else:
-        print("No change.", file=sys.stderr)
+        print(f"No change: {COMPILER_PATH}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# bootstrap_compiled.md 更新（替换 CompileDraft 节点的 instructions）
+# ---------------------------------------------------------------------------
+def update_bootstrap(skill_prompt: str) -> None:
+    content = BOOTSTRAP_PATH.read_text(encoding="utf-8")
+    # 用结构化节点边界定位 CompileDraft：节点标题 -> 下一个节点标题
+    # 注意不能用 "## [Transitions]" 做 end 标记，因为 prompt 内容里也含该字符串。
+    # CompileDraft 的跳转子节（Default -> ValidateSyntax）是固定结构，替换时保留。
+    node_marker = "# [Node] CompileDraft"
+    next_node_marker = "# [Node] ValidateSyntax"
+    transitions_tail = "## [Transitions]\n- Default -> ValidateSyntax\n\n"
+    if node_marker not in content or next_node_marker not in content:
+        print(f"[Warning] Could not locate CompileDraft node in {BOOTSTRAP_PATH}; skipping.", file=sys.stderr)
+        return
+    start = content.index(node_marker) + len(node_marker)
+    end = content.index(next_node_marker)
+    # 替换节点标题与其后指令，保留跳转子节
+    updated = content[:start] + "\n" + skill_prompt + "\n\n" + transitions_tail + content[end:]
+    if updated != content:
+        BOOTSTRAP_PATH.write_text(updated, encoding="utf-8")
+        print(f"Updated: {BOOTSTRAP_PATH}", file=sys.stderr)
+    else:
+        print(f"No change: {BOOTSTRAP_PATH}", file=sys.stderr)
 
 
 def main() -> None:
     spec = yaml.safe_load(SPEC_PATH.read_text(encoding="utf-8"))
-    prompt = build_prompt(spec)
+    prompt_py = build_prompt(spec, FOOTER_PY)
+    prompt_skill = build_prompt(spec, FOOTER_SKILL)
+
     if "--stdout" in sys.argv:
-        sys.stdout.write('COMPILER_PROMPT = """' + prompt + '"""\n')
+        sys.stdout.write('COMPILER_PROMPT = """' + prompt_py + '"""\n')
     else:
-        update_compiler(prompt)
+        update_compiler(prompt_py)
+        update_bootstrap(prompt_skill)
 
 
 if __name__ == "__main__":

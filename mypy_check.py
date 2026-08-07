@@ -1,3 +1,8 @@
+# mypy_check.py
+# 用途：编程助手 Skill（assistant_draft.md / assistant_compiled.md）的 type=script 节点挂载脚本。
+# 该脚本从对话历史中提取 LLM 生成的 Python 代码，用 mypy --strict 校验，并驱动自愈循环。
+# 通过 # [Node] 的 src 属性被引用：`- **src**: mypy_check.py`
+
 import os
 import re
 import subprocess
