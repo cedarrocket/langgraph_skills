@@ -228,6 +228,75 @@ triggers.py 核心 → 检查点埋点 → 语法糖展开 → triggers.json 加
 
 - 触发处理程序是否需显式 `trigger_result`（拦截/放行）注入，还是 MVP 靠"改状态+不跳转"隐式表达（倾向后者）
 
+### 7.6.1 上下文压缩流程设计（已确认，待实施）
+
+> 目标：解决"零继承 message history"导致的**下游失明**与**死数据累积**问题。
+> 核心机制：pre_node 检查点拦截超长上下文 → 跳转压缩子图 → 压缩后回本节点重跑。
+
+#### 设计决策（全部已锁定）
+
+| # | 决策 |
+|---|---|
+| 1 | **消息继承 = 选项 A**：节点可见 = 继承的 payload（deliverables）+ **本节点全部 message history**（不做 inherit: N 复杂语法） |
+| 2 | **pre_node 检查点**：节点开头（executor 之前）执行 trigger；检测到上下文超标 → **提前 return** 跳过本节点（超长报文不构造、不传 LLM） |
+| 3 | **信号机制 = 方案 A（提前 return）**：`node_function` 在 executor 之前 `return {"next_state": 子图节点名}`，router 自动跳转；不用 Python 异常（B） |
+| 4 | **transition 表格定义特殊触发**：`Condition` 加 `if:` 前缀（如 `if:context_length > 5000`）→ 程序化条件（pre_node 求值）；普通文本 → 现有 LLM 提示语义 |
+| 5 | **CompactionNode = 标准子图节点**（`type: skill` 子图，内部可多节点）；执行完回本节点重跑（子图 call/return，LangGraph 原生） |
+| 6 | **loop 计数语义**：子图整体算 1 次（内部节点不额外计数）；**trigger 触发跳转不计 loop**（只有节点正常执行完成才 +1） |
+
+#### 机制图
+
+```
+[N 节点]
+  │
+  ├─ pre_node 检查点（新，executor 之前）
+  │    ├─ 遍历 transitions：找 if: 前缀行，程序化求值
+  │    │    ├─ context_length > 5000 满足
+  │    │    │    └─ return {"next_state": "CompactionNode"}  ← 提前 return，报文不传，不计 loop
+  │    │    └─ 不满足 → 继续
+  │    └─ （无 if: 行）→ 直接继续
+  │
+  ├─ executor 执行（LLM，可见 = payload + 本节点全部消息）
+  │
+  └─ return {"next_state": 正常跳转}（计 loop）
+
+[CompactionNode 子图] ← router 跳来
+  ├─ 内部多节点：摘要 → compact → 重组
+  └─ 子图结束 → 父图边回 [N]（重跑，此时已压缩）
+```
+
+#### transition 表格形态
+
+```markdown
+# [Node] Analyze
+## [Transitions]
+| Condition | Next Node | Require Approval | Feedback |
+| if:context_length > 5000 | CompactionNode | no | 上下文过长，先去压缩 |
+| done | Fix | no | 带上分析结论 |
+```
+
+- `if:` 前缀 → 程序化条件（pre_node 求值，作用域 = context_length/loop_count/deliverables/error_flag）
+- 普通文本 → LLM 提示（现状语义，零破坏）
+
+#### 关键事实（LangGraph 实测）
+
+- **子图 = 完整图，可多节点**（3 节点子图验证通过）
+- **recursion_limit 把子图作为"一步"计入**（父图 3 步 + 子图 2 节点，limit=3 跑完父图）
+- **子图内部节点与父图共享 state**（子图内能看到父的 loop_count）——**须防止子图内部 +1 污染父图计数**
+- 我们自建 `loop_count`（nodes.py:60 节点函数开头 +1）；子图节点执行时父图 +1，但子图内部节点不能再 +1
+
+#### 待实施时的实现要点
+
+1. `parser.py`：Transition.condition 支持 `if:` 前缀（存原始文本，pre_node 判断前缀）
+2. `nodes.py`：新增 `_run_pre_node_checkpoint`（executor 之前），找 `if:` 行求值；满足 → 提前 return（next_state=目标，不计 loop）
+3. `nodes.py`：loop 计数调整——pre_node 触发跳转不计；子图内部节点不累加父图 loop_count（需在子图执行时保护）
+4. `graph.py`：支持子图节点（`type: skill` 编译为 LangGraph 子图，`add_node("x", subgraph)`）——**这是独立重构项，见下方**
+5. 继承语义（选项 A）：节点可见 = payload + 本节点全部消息（现状 executors.py:227-236 的 `start_msg_index` 逻辑微调）
+
+#### 相关独立重构项（另立项）
+
+- **`type: skill` 升级为真子图**：从 `run_skill`（Python 模拟）改为 `add_node(子图)`（LangGraph 原生子图）。LangGraph 子图状态接口 = **schema 字段声明制**（共享字段自动进出，非共享隔离）；`deliverables` 天然适合作为共享通道。此重构同时解锁：checkpoint/流式/子图 call-return 语义。
+
 ### 7.7 架构方向结论（openswe 调研后定案）
 
 - **模型选择**：粒度 = skill 级（图级统一），不节点级混用；唯一 pyfunction 接口（开发者自写逻辑），无 DSL 语法糖、无能力映射；兜底链 pyfunction > config.json > 内置默认；LLM 自主选模型 → subagent 类型（未来）
