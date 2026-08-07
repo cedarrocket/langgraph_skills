@@ -17,6 +17,12 @@ from typing import Any, Callable, Dict, List, Optional
 from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.graph import END
 
+from langgraph_skills.config import (
+    DEFAULT_BASE_URL,
+    DEFAULT_MODEL,
+    DEFAULT_TEMPERATURE,
+    Settings,
+)
 from langgraph_skills.executors import ExecutorContext, get_executor
 from langgraph_skills.models import AgentState, NodeInfo
 from langgraph_skills.tools import ToolRegistry
@@ -31,13 +37,15 @@ def create_node(
     global_instructions: str = "",
     safe_input: Optional[SafeInputFn] = None,
     run_skill: Optional[RunSkillFn] = None,
+    settings: Optional[Settings] = None,
 ):
     """动态生成通用的 LangGraph 节点处理函数。
 
     节点级通用逻辑（loop 计数、JSON 校验、人工审批门）在此；
     状态类型逻辑委托给 executors.EXECUTOR_REGISTRY（可插拔）。
 
-    safe_input / run_skill 由调用方（graph.build_graph）注入，避免 nodes 反向依赖 runner。
+    safe_input / run_skill / settings 由调用方（graph.build_graph）注入，
+    避免 nodes 反向依赖 runner / config 加载逻辑。
     """
 
     def node_function(state: AgentState):
@@ -68,6 +76,10 @@ def create_node(
             tools=tools,
             safe_input=safe_input,
             run_skill=run_skill,
+            settings=settings or Settings.load(),
+            model=(settings.model if settings else DEFAULT_MODEL),
+            base_url=(settings.base_url if settings else DEFAULT_BASE_URL),
+            temperature=(settings.temperature if settings else DEFAULT_TEMPERATURE),
         )
         result = executor(ctx)
         next_state = result.next_state

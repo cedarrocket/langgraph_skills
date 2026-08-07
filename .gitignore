@@ -52,3 +52,6 @@ test_stdout_pipe.md
 
 # Archived / legacy files kept out of git
 _archive/
+
+# Local AI model / provider configuration (may reference external key files)
+lgskills.json

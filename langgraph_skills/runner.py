@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END
 
-from langgraph_skills.config import get_deepseek_key
+from langgraph_skills.config import Settings
 from langgraph_skills.graph import build_graph, print_help
 from langgraph_skills.models import AgentState
 from langgraph_skills.parser import parse_compiled_skill, validate_node_graph
@@ -82,7 +82,14 @@ def run_skill(
                 sys.exit(2)
 
     # 动态构建并注册工具及运行 Option 中的 reader 属性
-    app = build_graph(skill_path, initial_deliverables, safe_input=safe_input, run_skill=run_skill)
+    settings = Settings.load()
+    app = build_graph(
+        skill_path,
+        initial_deliverables,
+        safe_input=safe_input,
+        run_skill=run_skill,
+        settings=settings,
+    )
 
     start_node = list(node_dict.keys())[0]
     initial_state: AgentState = {
@@ -97,7 +104,7 @@ def run_skill(
     }
 
     final_deliverables = initial_deliverables if initial_deliverables is not None else {}
-    if get_deepseek_key():
+    if settings.api_key:
         for output in app.stream(initial_state):
             for key, value in output.items():
                 print(f"Output from node '{key}':")

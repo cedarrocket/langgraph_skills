@@ -58,8 +58,12 @@
 | `scripts/gen_compiler_prompt.py` | spec → 编译器 prompt（python 版 compiler.py + skill 版 bootstrap_compiled.md，保证同构） | `python scripts/gen_compiler_prompt.py` | 已启用，随 spec 变更重新生成 |
 | `scripts/dump_ir.py` | 现有 parser → IR 初稿（金标准方案 A 生成器） | `python scripts/dump_ir.py <skill.md> [-o out.json]` | 初稿生成，最终契约人工审 |
 | `lgskills validate` | 静态校验技能 | `lgskills validate <skill.md>` | 已启用 |
+| `lgskills model` | AI 模型/provider 管理（list/set/config/import-opencode） | `lgskills model <list\|set\|config\|import-opencode>` | 已启用 |
 | CI (`ci.yml`) | lint/mypy/test/validate/build | 推送时自动 | 已启用 |
 | `pip wheel . --no-deps` | 构建 wheel | `python -m pip wheel . --no-deps -w <dir>` | 已启用 |
+
+> **AI 模型配置**：JSON 配置文件（全局 `~/.config/langgraph_skills/config.json` + 项目 `lgskills.json`），
+> 密钥用 `{file:path}`/`{env:VAR}` 引用（不写入配置文件），对齐 opencode 惯例。详见 README §2.2。
 
 > 后续新增的自动化/半自动化流程（例如：金标准示例批量生成、IR 对照工具、
 > 编译器 prompt 生成、调试复现脚本）统一登记到本表并附使用说明。

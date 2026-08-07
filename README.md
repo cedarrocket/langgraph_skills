@@ -127,7 +127,7 @@ langraph_skills/
 * **[runner.py](langgraph_skills/runner.py)**：
   运行时编排 + CLI。`run_skill` 完整执行一个 skill（解析 -> 构建 -> stream），`run_cli` 处理命令行参数 / stdin 管道 / writer 落盘 / 退出码，`safe_input` 提供交互式输入。
 * **[config.py](langgraph_skills/config.py)**：
-  引擎配置单一入口。`Settings.from_env()` 读取 `LGSKILLS_MODEL` / `LGSKILLS_BASE_URL` / `LGSKILLS_TEMPERATURE` / `LGSKILLS_STRICT` 环境变量；`get_deepseek_key()` 解析密钥（env / `.env` / 密钥文件）。
+  引擎配置单一入口。`Settings.load()` 合并环境变量 + 三层 JSON 配置（全局 `~/.config/langgraph_skills/config.json` + 项目 `lgskills.json`），支持 `{file:}`/`{env:}` 密钥引用与 provider 解析。
 
 ### 2. 规范与生成管线
 * **[spec/dsl_spec.yaml](spec/dsl_spec.yaml)**：
@@ -222,14 +222,49 @@ pip install -e .
 * 运行编程助手 / 代码审查等 Agent（依赖 `mypy` 做类型检查）：`pip install -e ".[agents]"`
 * 本地开发（测试/lint）：`pip install -e ".[dev]"`
 
-### 2. 配置秘钥与环境变量
+### 2. 配置秘钥与 AI 模型
 
-运行时系统会依次从以下三个渠道加载 DeepSeek API 秘钥：
+#### 2.1 API 密钥（三种渠道，优先级从高到低）
+
 1. 系统环境变量：`DEEPSEEK_API_KEY`
 2. 当前目录下的 `.env` 文件
 3. 由 `DEEPSEEK_API_KEY_FILE` 环境变量指定的密钥文件（路径支持 `~` 展开）
 
 参考 [.env.example](.env.example) 配置您的秘钥。
+
+#### 2.2 配置文件（JSON，对齐 opencode 惯例）
+
+模型与 provider 设置通过 JSON 配置文件管理，支持三层合并（默认 < 全局 < 项目）：
+- **全局**：`~/.config/langgraph_skills/config.json`
+- **项目**：项目根目录 `lgskills.json`（覆盖全局）
+
+```json
+{
+  "model": "deepseek/deepseek-chat",
+  "provider": {
+    "deepseek": {
+      "models": { "deepseek-chat": {} },
+      "options": {
+        "apiKey": "{file:~/path/to/deepseek_api.txt}",
+        "baseURL": "https://api.deepseek.com/v1"
+      }
+    }
+  }
+}
+```
+
+**密钥不写入配置文件**：用 `{file:path}`（读文件，支持 `~`）或 `{env:VAR}`（读环境变量）引用。
+
+#### 2.3 `lgskills model` 子命令
+
+```bash
+lgskills model list                 # 列出可用 provider/models
+lgskills model set deepseek/deepseek-chat   # 设置默认模型
+lgskills model config               # 查看当前生效配置
+lgskills model import-opencode      # 从 opencode 全局配置导入 provider
+```
+
+环境变量 `LGSKILLS_MODEL` / `LGSKILLS_BASE_URL` / `LGSKILLS_TEMPERATURE` / `LGSKILLS_STRICT` 优先于配置文件。
 
 ### 3. 命令行命令参考
 
