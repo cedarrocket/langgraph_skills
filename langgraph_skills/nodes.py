@@ -57,11 +57,28 @@ def create_node(
     """
 
     def node_function(state: AgentState):
+        deliverables = state.get("deliverables", {})
+
+        # pre_node 检查点：上下文超限 → 提前 return 跳转（去压缩子图），不计 loop
+        if node_info.max_context_length is not None:
+            redirect = _pre_node_context_redirect(node_info, state)
+            if redirect:
+                print(
+                    f"\n--- [Node: {node_info.name}] Context exceeded {node_info.max_context_length}, "
+                    f"redirecting to subgraph '{redirect}' (loop not counted) ---"
+                )
+                return {
+                    "next_state": redirect,
+                    "deliverables": deliverables,
+                    "loop_count": state.get("loop_count", 0),  # 不计 loop
+                    "max_loops": state.get("max_loops", 10),
+                    "current_node": node_info.name,
+                }
+
         current_loops = state.get("loop_count", 0) + 1
         current_max_loops = state.get("max_loops", 10)
         new_max_loops = max(current_max_loops, 20) if node_info.interactive else current_max_loops
 
-        deliverables = state.get("deliverables", {})
         next_state = None
         output_messages: Optional[List[BaseMessage]] = None
 
@@ -201,6 +218,24 @@ def generic_router(state: AgentState):
 def tool_router(state: AgentState):
     """ToolNode 执行完毕后，通用路由回原来的触发节点，形成 ReAct 闭环。"""
     return state.get("current_node") or END
+
+
+def _pre_node_context_redirect(node_info: NodeInfo, state: AgentState) -> Optional[str]:
+    """pre_node 检查点：上下文超限时，找继承跳转（==> 或 ==> <==）指向子图的 transition 并返回其目标。
+
+    仅当节点声明 max_context_length 且当前上下文超限时触发。
+    返回子图节点名（提前 return 用），无合适目标返回 None。
+    """
+    msgs = state.get("messages", [])
+    context_length = sum(len(getattr(m, "content", "") or "") for m in msgs)
+    if node_info.max_context_length is None or context_length <= node_info.max_context_length:
+        return None
+
+    # 找第一个继承跳转的 transition（==> / ==> <==，inherit_history=True）
+    for t in node_info.transitions:
+        if t.inherit_history:
+            return t.next
+    return None
 
 
 def _run_node_checkpoint(

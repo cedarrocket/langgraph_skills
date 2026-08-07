@@ -85,6 +85,8 @@
 
  * `max_loops`，该节点独立执行上限；null 表示继承全局 max_loops
 
+ * `max_context_length`，pre_node 检查点阈值：进入节点时上下文（消息总长度）超过该值时，提前 return 跳转到继承边（==>）指向的子图（去压缩），不计 loop；null 表示不检查
+
 
 
 **子区块 `## [Transitions]`**：状态跳转规则；非 final 状态必须定义，否则触发隐式顺序 fallback

@@ -252,6 +252,7 @@ def parse_node_body(node_name: str, body_text: str) -> NodeInfo:
         "is_final": False,
         "history_window": None,
         "max_loops": None,
+        "max_context_length": None,
     }
 
     instructions_lines: List[str] = []
@@ -305,6 +306,11 @@ def parse_node_body(node_name: str, body_text: str) -> NodeInfo:
                             metadata["max_loops"] = int(v)
                         except ValueError:
                             metadata["max_loops"] = None
+                    elif k == "max_context_length":
+                        try:
+                            metadata["max_context_length"] = int(v)
+                        except ValueError:
+                            metadata["max_context_length"] = None
                 continue
             elif not stripped:
                 continue
@@ -337,6 +343,7 @@ def parse_node_body(node_name: str, body_text: str) -> NodeInfo:
         output_schema=output_schema,
         history_window=metadata["history_window"],
         max_loops=metadata["max_loops"],
+        max_context_length=metadata["max_context_length"],
     )
 
 

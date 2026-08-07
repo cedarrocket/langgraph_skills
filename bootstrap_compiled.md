@@ -21,6 +21,7 @@ Rules:
       - **interactive**: `true`/`false` (default `false`)
       - **history_window**: integer (optional)
       - **max_loops**: integer (optional, defaults to global max_loops)
+      - **max_context_length**: integer (optional; when the entering context exceeds this, the node redirects early to its `==>` subgraph without running)
 2. Transition logic must be compiled into a sub-section: `## [Transitions]`.
    - For multiple conditional transitions (e.g., table or rules), use a Markdown table:
      | Condition | Next Node | Require Approval | Feedback |

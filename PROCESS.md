@@ -232,18 +232,18 @@ triggers.py 核心 → 检查点埋点 → 语法糖展开 → triggers.json 加
 
 > 目标：解决"零继承 message history"导致的**下游失明**与**死数据累积**问题。
 > 核心机制：pre_node 检查点拦截超长上下文 → 跳转压缩子图 → 压缩后回本节点重跑。
-> **实现状态：决策 1（==> 继承）+ 决策 5/7/8（子图机制）已实现**（parser/executors/spec/两个 compiler 同步，130 测试全绿）；其余待实施。
+> **实现状态：全部决策已实现**（parser/executors/nodes/spec/两个 compiler 同步，134 测试全绿，真实 key 端到端验证通过）。
 
 #### 设计决策
 
 | # | 决策 | 状态 |
 |---|---|---|
 | 1 | **消息继承 = `==>` 语法**：列表 `- Default ==> Target`、表格 Next Node 单元格 `==> Target` → 目标节点继承源节点消息历史（游标不重置）；默认 `->` 不继承（现状零继承） | ✅ **已实现** |
-| 2 | **pre_node 检查点**：节点开头（executor 之前）执行 trigger；检测到上下文超标 → **提前 return** 跳过本节点（超长报文不构造、不传 LLM） | ⏳ 待实施 |
-| 3 | **信号机制 = 方案 A（提前 return）**：`node_function` 在 executor 之前 `return {"next_state": 子图节点名}`，router 自动跳转；不用 Python 异常（B） | ⏳ 待实施 |
+| 2 | **pre_node 检查点**：节点开头（executor 之前）检查上下文；`max_context_length` 元数据声明阈值，超限时**提前 return** 跳过本节点（超长报文不构造、不传 LLM），跳转到继承边（`==>`）指向的子图 | ✅ **已实现** |
+| 3 | **信号机制 = 方案 A（提前 return）**：`node_function` 在 executor 之前 `return {"next_state": 子图节点名}`，router 自动跳转；不用 Python 异常（B） | ✅ **已实现** |
 | 4 | ~~transition 表格 `if:` 前缀~~（确认从未实现，**不引入**） | ❌ 取消 |
 | 5 | **子图机制 = 通用能力**（非专用 CompactionNode）：压缩是子图的一个应用。子图 = `# [SubGraph]` 声明（形态 A：内部 `## [Node]` 节点列表；src 简写：`- **src**: path` 加载外部 skill），允许递归嵌套 | ✅ **已实现** |
-| 6 | **loop 计数语义**：子图整体算 1 次（内部节点不额外计数）；**trigger 触发跳转不计 loop**（只有节点正常执行完成才 +1） | ⏳ 待实施 |
+| 6 | **loop 计数语义**：pre_node 触发跳转**不计 loop**（提前 return 分支回传原 loop_count）；子图内部节点独立计数（run_skill 从 0 开始），不污染父图 | ✅ **已实现** |
 | 7 | **子图调用继承**：跳转子图的边 `->`（不继承）→ **warning**（不强制）；`==>`（继承+合并）正常 | ✅ **已实现** |
 | 8 | **覆盖语法 `==> X <==`**：调用子图时输出（messages）整体覆盖父图 messages（压缩等替换场景）；不带 `<==` 时合并回父图（追加新增，按 ID 去重） | ✅ **已实现** |
 

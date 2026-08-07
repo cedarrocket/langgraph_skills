@@ -131,6 +131,10 @@ sections:
         type: integer
         default: null
         description: "该节点独立执行上限；null 表示继承全局 max_loops"
+      max_context_length:
+        type: integer
+        default: null
+        description: "pre_node 检查点阈值：进入节点时上下文（消息总长度）超过该值时，提前 return 跳转到继承边（==>）指向的子图（去压缩），不计 loop；null 表示不检查"
     sub_sections: # 状态体内的 `## [X]` 子区块
       transitions:
         heading: "## [Transitions]"

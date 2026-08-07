@@ -63,7 +63,8 @@ def render_node_rules(spec: Dict[str, Any]) -> str:
       - **src**: path (required when type is `script` or `skill`)
       - **interactive**: `true`/`false` (default `false`)
       - **history_window**: integer (optional)
-      - **max_loops**: integer (optional, defaults to global max_loops)"""
+      - **max_loops**: integer (optional, defaults to global max_loops)
+      - **max_context_length**: integer (optional; when the entering context exceeds this, the node redirects early to its `==>` subgraph without running)"""
 
 
 def render_transition_rules(spec: Dict[str, Any]) -> str:

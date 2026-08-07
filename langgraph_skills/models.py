@@ -78,6 +78,7 @@ class NodeInfo:
     output_schema: Optional[Dict[str, Any]] = None
     history_window: Optional[int] = None
     max_loops: Optional[int] = None  # None 表示继承全局 max_loops
+    max_context_length: Optional[int] = None  # pre_node 检查点：上下文超过该值时提前 return 跳转（去压缩子图）
     triggers: List[Dict[str, Any]] = field(default_factory=list)  # 节点级 trigger 配置（dict 形式）
 
     @property

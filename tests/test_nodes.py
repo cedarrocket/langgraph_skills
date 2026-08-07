@@ -54,7 +54,7 @@ def _state(node_name="A", loop_count=0, max_loops=10, deliverables=None):
     )
 
 
-def _node(name="A", transitions=None, is_final=False, interactive=False, output_schema=None):
+def _node(name="A", transitions=None, is_final=False, interactive=False, output_schema=None, max_context_length=None):
     return NodeInfo(
         name=name,
         instructions="",
@@ -62,6 +62,7 @@ def _node(name="A", transitions=None, is_final=False, interactive=False, output_
         is_final=is_final,
         interactive=interactive,
         output_schema=output_schema,
+        max_context_length=max_context_length,
         node_type=FAKE_TYPE,  # 用假执行器类型，避免走真实 LLM
     )
 
@@ -197,3 +198,75 @@ def test_executor_receives_context():
     fn(_state())
     assert fake.last_ctx is not None
     assert fake.last_ctx.node_info.name == "A"
+
+
+# ---------------------------------------------------------------------------
+# pre_node 检查点（上下文超限 → 提前 return 跳转，不计 loop）
+# ---------------------------------------------------------------------------
+
+
+def _state_with_messages(node_name="A", loop_count=3, max_loops=10, contents=None):
+    from langchain_core.messages import HumanMessage
+
+    msgs = [HumanMessage(content=c) for c in (contents or ["short"])]
+    return AgentState(
+        messages=msgs,
+        global_instructions="",
+        state_instructions="",
+        deliverables={},
+        current_node=node_name,
+        next_state="",
+        loop_count=loop_count,
+        max_loops=max_loops,
+    )
+
+
+def test_pre_node_redirects_when_context_exceeded():
+    fake = FakeExecutor()
+    ex_mod.EXECUTOR_REGISTRY[FAKE_TYPE] = fake
+    # 超限：内容很长，max_context_length=10
+    info = _node(
+        transitions=[Transition(next="Compress", inherit_history=True)],
+        max_context_length=10,
+    )
+    fn = create_node(info, ToolRegistry(), safe_input=lambda p: "y", run_skill=lambda *a, **k: {})
+    ret = fn(_state_with_messages(contents=["x" * 100]))
+    assert ret["next_state"] == "Compress"
+    assert ret["loop_count"] == 3  # 不计 loop（保持原值）
+    assert fake.calls == 0  # executor 未执行
+
+
+def test_pre_node_no_redirect_when_under_limit():
+    fake = FakeExecutor()
+    ex_mod.EXECUTOR_REGISTRY[FAKE_TYPE] = fake
+    info = _node(
+        transitions=[Transition(next="Compress", inherit_history=True)],
+        max_context_length=1000,
+    )
+    fn = create_node(info, ToolRegistry(), safe_input=lambda p: "y", run_skill=lambda *a, **k: {})
+    ret = fn(_state_with_messages(contents=["short"]))
+    assert ret["next_state"] == "Finish"  # executor 正常执行（fake 返回 Finish）
+    assert ret["loop_count"] == 4  # 正常计数
+    assert fake.calls == 1
+
+
+def test_pre_node_no_redirect_without_max_context():
+    fake = FakeExecutor()
+    ex_mod.EXECUTOR_REGISTRY[FAKE_TYPE] = fake
+    info = _node(transitions=[Transition(next="B")])  # 未声明 max_context_length
+    fn = create_node(info, ToolRegistry(), safe_input=lambda p: "y", run_skill=lambda *a, **k: {})
+    ret = fn(_state_with_messages(contents=["x" * 500]))
+    assert ret["loop_count"] == 4  # 正常执行
+    assert fake.calls == 1
+
+
+def test_pre_node_redirect_preserves_deliverables():
+    fake = FakeExecutor()
+    ex_mod.EXECUTOR_REGISTRY[FAKE_TYPE] = fake
+    info = _node(transitions=[Transition(next="Compress", inherit_history=True)], max_context_length=10)
+    fn = create_node(info, ToolRegistry(), safe_input=lambda p: "y", run_skill=lambda *a, **k: {})
+    state = _state_with_messages(contents=["x" * 100])
+    state["deliverables"] = {"payload": "keep-me"}
+    ret = fn(state)
+    assert ret["deliverables"]["payload"] == "keep-me"
+    assert ret["next_state"] == "Compress"
