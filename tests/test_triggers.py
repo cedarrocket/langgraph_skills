@@ -7,6 +7,7 @@ triggers.json 加载、post_node/pre_llm 检查点、handler 执行。
 import json
 
 import pytest
+from langchain_core.messages import HumanMessage
 
 from langgraph_skills.config import load_triggers
 from langgraph_skills.triggers import (
@@ -146,6 +147,36 @@ def test_run_handler_error_tolerated(tmp_path):
     handler = tmp_path / "bad.py"
     handler.write_text("raise RuntimeError('boom')\n", encoding="utf-8")
     run_handler(str(handler), {"deliverables": {}})  # 不抛异常
+
+
+# ---------------------------------------------------------------------------
+# 文本压缩（handler 裁剪 messages）
+# ---------------------------------------------------------------------------
+
+
+def test_run_handler_compacts_messages_by_reference(tmp_path):
+    """handler 通过引用修改 messages 应真实作用于图状态（文本压缩）。"""
+    handler = tmp_path / "compact.py"
+    handler.write_text("del messages[:-2]\n", encoding="utf-8")
+    state_messages = [HumanMessage(content=f"msg{i}") for i in range(5)]
+    scope = {
+        "deliverables": {},
+        "messages": state_messages,  # 同一引用（如 state["messages"]）
+        "loop_count": 2,
+        "current_node": "A",
+    }
+    run_handler(str(handler), scope)
+    assert len(state_messages) == 2  # 真实状态被裁剪
+
+
+def test_run_handler_reassign_messages_does_not_affect_state(tmp_path):
+    """handler 用 `messages = [...]` 重新赋值是局部变量，不影响图状态（易踩的坑）。"""
+    handler = tmp_path / "reassign.py"
+    handler.write_text("messages = ['only one']\n", encoding="utf-8")
+    state_messages = [HumanMessage(content="m1"), HumanMessage(content="m2")]
+    scope = {"deliverables": {}, "messages": state_messages, "loop_count": 1, "current_node": "A"}
+    run_handler(str(handler), scope)
+    assert len(state_messages) == 2  # 重新赋值不生效
 
 
 # ---------------------------------------------------------------------------
