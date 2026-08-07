@@ -136,7 +136,13 @@ def execute_script(ctx: ExecutorContext) -> ExecutorResult:
 
 
 def execute_skill(ctx: ExecutorContext) -> ExecutorResult:
-    """type=skill：运行嵌套子 skill，payload 作为输入。"""
+    """type=skill：运行嵌套子 skill / 子图，payload 与消息作为输入。
+
+    消息进出：
+      - 子图可见父图 messages（若调用边为 ==> / ==> <==）
+      - 子图返回 messages：replace_messages=True 时整体覆盖父图 messages；
+        False 时合并回父图（追加子图新增的消息）
+    """
     info = ctx.node_info
     child_skill_path = info.src
     if not child_skill_path:
@@ -145,16 +151,32 @@ def execute_skill(ctx: ExecutorContext) -> ExecutorResult:
         raise FileNotFoundError(f"Child skill file '{child_skill_path}' not found for state '{info.name}'.")
 
     parent_payload = ctx.state["deliverables"].get("payload", "")
+    transition = info.transitions[0] if info.transitions else None
+    inherit_history = bool(getattr(transition, "inherit_history", False))
+    replace_messages = bool(getattr(transition, "replace_messages", False))
+
+    # 子图可见父图 messages（==> / ==> <== 时继承）
+    child_messages = ctx.state["messages"] if inherit_history else None
     child_deliverables = ctx.run_skill(
         child_skill_path,
         user_input=f"Parent payload context: {parent_payload}",
         initial_deliverables={"payload": parent_payload},
+        initial_messages=child_messages,
     )
 
-    next_state = info.transitions[0].next if info.transitions else None
-    ctx.state["deliverables"]["_inherit_history"] = (
-        bool(getattr(info.transitions[0], "inherit_history", False)) if info.transitions else False
-    )
+    # 消息回传：覆盖（replace）或合并（append 子图新增）
+    if inherit_history and "messages" in child_deliverables:
+        child_msgs = child_deliverables["messages"]
+        if replace_messages:
+            ctx.state["messages"] = child_msgs  # 整体覆盖
+        else:
+            parent_ids = {getattr(m, "id", None) for m in ctx.state["messages"]}
+            new_msgs = [m for m in child_msgs if getattr(m, "id", None) not in parent_ids]
+            ctx.state["messages"].extend(new_msgs)  # 合并子图新增
+
+    next_state = transition.next if transition else None
+    ctx.state["deliverables"]["_inherit_history"] = inherit_history
+    ctx.state["deliverables"]["_replace_messages"] = replace_messages
     return ExecutorResult(next_state=next_state, payload=child_deliverables.get("payload", ""))
 
 

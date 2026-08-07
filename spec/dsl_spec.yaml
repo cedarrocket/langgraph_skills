@@ -138,17 +138,29 @@ sections:
         forms:
           table:
             columns: [Condition, Next Node, Require Approval, Feedback]
-            description: "多条件/带审批的跳转用表格；Next Node 单元格加 `==>` 前缀（如 `==> Fix`）表示继承源节点的消息历史"
+            description: "多条件/带审批的跳转用表格；Next Node 单元格加 `==>`（继承）或 `==> X <==`（继承+覆盖）前缀"
             optional_columns: [Condition, Require Approval, Feedback]
           list:
             syntax: |
               - Default -> TargetState          # 不继承消息历史（默认）
-              - Default ==> TargetState         # 继承源节点的消息历史
+              - Default ==> TargetState         # 继承源节点的消息历史（子图输出合并回父图）
+              - Default ==> TargetState <==     # 继承 + 子图输出整体覆盖父图 messages
               - If `cond` -> TargetState (Feedback: "...") [Require Approval]
-            description: "单跳转或简单条件用列表；`==>` 表示继承消息历史，`->` 表示不继承（默认）"
+            description: "单跳转或简单条件用列表；`==>` 继承消息历史，`==> X <==` 继承且覆盖，`->` 不继承（默认）"
       output:
         headings: ["## [Output JSON]", "## [Output Schema]", "## [Output]"]
         description: "输出 JSON Schema 约束；内容为 JSON 文本（可带 ```json 围栏）"
+
+  # 子图声明（图中图，内部可含 ## [Node]）
+  subgraph:
+    heading: "# [SubGraph] Name"
+    description: "子图声明。两种形态：内部 `## [Node]` 节点列表（真子图）；或单行 `- **src**: path` 加载外部 skill 文件。允许递归嵌套"
+    forms:
+      nodes: "子图体含 `## [Node]` 子区块 → 形态 A（真子图，内部节点列表）"
+      src: "子图体只有 `- **src**: path` → 加载外部 skill 文件"
+    transition_notes:
+      - "跳转到子图的边：`==>`（继承+合并）或 `==> X <==`（继承+覆盖 messages）；`->`（不继承）给 warning（不强制）"
+      - "子图结束自动返回父图（LangGraph 子图 call/return）"
 
 # ------------------------------------------------------------------------------
 # 3. 语义规则 (Semantics)
@@ -181,6 +193,10 @@ semantics:
       syntax: "`==>`（列表）或 Next Node 单元格 `==> Fix`（表格）"
       semantics: "目标节点继承源节点的消息历史（游标不重置，从源节点起点继续看）；默认 `->` 不继承（零继承，现状）"
       scope: "仅继承源节点自己产生的消息（源节点可见范围）"
+    replace_messages:
+      syntax: "`==> Target <==`（列表）或 Next Node 单元格 `==> Target <==`（表格）"
+      semantics: "调用子图时，子图输出（messages）整体覆盖父图 messages（压缩等替换场景）；不带 `<==` 时子图输出合并回父图（追加新增，按 ID 去重）"
+      scope: "仅对跳转子图有效；普通节点间跳转不适用"
 
   # 循环预算
   max_loops:

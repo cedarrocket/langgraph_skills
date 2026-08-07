@@ -25,6 +25,7 @@ from langgraph_skills.models import (
     CompiledSkill,
     InputOption,
     NodeInfo,
+    SubGraphInfo,
     ToolInfo,
     Transition,
 )
@@ -34,8 +35,9 @@ _SECTION_CONFIG = "config"
 _SECTION_IO = "io"
 _SECTION_TOOLS = "tools"
 _SECTION_STATE = "node"
+_SECTION_SUBGRAPH = "subgraph"
 
-_KNOWN_SECTIONS = {_SECTION_CONFIG, _SECTION_IO, _SECTION_TOOLS, _SECTION_STATE}
+_KNOWN_SECTIONS = {_SECTION_CONFIG, _SECTION_IO, _SECTION_TOOLS, _SECTION_STATE, _SECTION_SUBGRAPH}
 
 
 class ParseError(Exception):
@@ -110,8 +112,11 @@ def parse_markdown_table_transitions(lines: list) -> List[Transition]:
         row_dict = dict(zip(header, parts))
         next_state = row_dict.get("next node") or row_dict.get("next state") or row_dict.get("next") or row_dict.get("next_state")
         if next_state:
-            # == 前缀（如 "==> Fix"）表示继承消息历史
+            # 三态：==> X <==（继承+覆盖）/ ==> X（继承）/ X（不继承，默认）
+            replace_messages = "<==" in next_state
             inherit_history = "==>" in next_state
+            if replace_messages:
+                next_state = next_state.replace("<==", "").strip()
             if inherit_history:
                 next_state = next_state.replace("==>", "").strip()
             cond = row_dict.get("condition") or row_dict.get("cond")
@@ -129,6 +134,7 @@ def parse_markdown_table_transitions(lines: list) -> List[Transition]:
                     feedback=feedback,
                     require_approval=require_approval,
                     inherit_history=inherit_history,
+                    replace_messages=replace_messages,
                 )
             )
     return transitions
@@ -143,7 +149,11 @@ def parse_markdown_list_transitions(lines: list) -> List[Transition]:
         if stripped.startswith(("-", "*", "+")):
             item = stripped[1:].strip()
 
-            # 箭头：==>（继承消息历史）优先于 ->（不继承，现状）
+            # 箭头三态：
+            #   ==>X<== : 继承 + 覆盖（子图输出替换父图 messages）
+            #   ==>X    : 继承（子图输出合并回父图）
+            #   ->X     : 不继承（默认）
+            replace_messages = "<==" in item
             arrow = "==>" if "==>" in item else "->"
             inherit_history = arrow == "==>"
             if arrow not in item:
@@ -152,10 +162,17 @@ def parse_markdown_list_transitions(lines: list) -> List[Transition]:
             # Default ==> TargetState / Default -> TargetState
             if "default" in item.lower():
                 right_side = item.split(arrow, 1)[1].strip()
+                if replace_messages:
+                    right_side = right_side.replace("<==", "").strip()
                 require_approval = "[require approval]" in right_side.lower() or "(require approval)" in right_side.lower()
                 next_state = right_side.split("(")[0].split("[")[0].strip()
                 transitions.append(
-                    Transition(next=next_state, require_approval=require_approval, inherit_history=inherit_history)
+                    Transition(
+                        next=next_state,
+                        require_approval=require_approval,
+                        inherit_history=inherit_history,
+                        replace_messages=replace_messages,
+                    )
                 )
                 continue
 
@@ -168,6 +185,8 @@ def parse_markdown_list_transitions(lines: list) -> List[Transition]:
                     cond = item.split(arrow, 1)[0].replace("if", "", 1).strip()
 
                 right_side = item.split(arrow, 1)[1].strip()
+                if replace_messages:
+                    right_side = right_side.replace("<==", "").strip()
                 require_approval = "[require approval]" in right_side.lower() or "(require approval)" in right_side.lower()
 
                 feedback = None
@@ -187,6 +206,7 @@ def parse_markdown_list_transitions(lines: list) -> List[Transition]:
                         feedback=feedback,
                         require_approval=require_approval,
                         inherit_history=inherit_history,
+                        replace_messages=replace_messages,
                     )
                 )
     return transitions
@@ -355,6 +375,55 @@ def _apply_sequential_fallback(node_infos: List[NodeInfo]) -> None:
             info.transitions.append(Transition(next=node_infos[i + 1].name))
 
 
+def _split_sub_sections(body: str) -> List[Tuple[Tuple[str, str], str]]:
+    """按 `## [X]` 切分子图体内的子区块（子图内节点用二级标题）。"""
+    pattern = r"^##\s+\[([^\]]+)\]\s*(.*)$"
+    sections: List[Tuple[Tuple[str, str], str]] = []
+    current: Optional[Tuple[str, str]] = None
+    current_body: List[str] = []
+    for line in body.splitlines():
+        match = re.match(pattern, line)
+        if match:
+            if current:
+                sections.append((current, "\n".join(current_body)))
+            current = (match.group(1).strip(), match.group(2).strip())
+            current_body = []
+        else:
+            current_body.append(line)
+    if current:
+        sections.append((current, "\n".join(current_body)))
+    return sections
+
+
+def _parse_subgraph_body(name: str, body: str) -> SubGraphInfo:
+    """解析 `# [SubGraph] Name` 的 body。
+
+    两种形态：
+      - body 只有 `- **src**: path` → 加载外部文件（src 简写）
+      - body 含 `## [Node]` 子区块 → 形态 A（真子图，内部节点列表）
+    """
+    sub = SubGraphInfo(name=name)
+
+    # 检查 src 简写形态
+    src_match = re.search(r"(?m)^\s*-\s*\*\*src\*\*:\s*(.+)$", body)
+    if src_match and "## [" not in body:
+        sub.src = src_match.group(1).strip()
+        return sub
+
+    # 形态 A：解析子图体内的 ## [Node]
+    node_infos: List[NodeInfo] = []
+    for (sec_type, sec_arg), sec_body in _split_sub_sections(body):
+        sec = sec_type.lower()
+        if sec == _SECTION_STATE:
+            if not sec_arg:
+                raise ParseError(f"Node section missing name in subgraph '{name}': `## [{sec_type}]`")
+            node_infos.append(parse_node_body(sec_arg, sec_body))
+    _apply_sequential_fallback(node_infos)
+    for info in node_infos:
+        sub.nodes[info.name] = info
+    return sub
+
+
 def parse_compiled_skill(filepath: str, strict: bool = False) -> CompiledSkill:
     """解析 skill 文件为 CompiledSkill（IR）。
 
@@ -423,6 +492,14 @@ def parse_compiled_skill(filepath: str, strict: bool = False) -> CompiledSkill:
                 raise ParseError(f"Node section missing name: `# [{sec_type}]`")
             node_infos.append(parse_node_body(sec_arg, body))
 
+        elif sec == _SECTION_SUBGRAPH:
+            if not sec_arg:
+                raise ParseError(f"SubGraph section missing name: `# [{sec_type}]`")
+            sub = _parse_subgraph_body(sec_arg, body)
+            if sub.name in compiled.subgraphs:
+                raise ParseError(f"Duplicate subgraph name: '{sub.name}'")
+            compiled.subgraphs[sub.name] = sub
+
         else:
             if strict:
                 raise ParseError(f"Unknown section `# [{sec_type}]` (strict mode enabled).")
@@ -439,12 +516,25 @@ def parse_compiled_skill(filepath: str, strict: bool = False) -> CompiledSkill:
     for info in node_infos:
         compiled.nodes[info.name] = info
 
+    # 子图调用检查：-> 调用子图（不继承）→ warning（不强制）
+    for info in compiled.nodes.values():
+        for t in info.transitions:
+            if t.next in compiled.subgraphs and not t.inherit_history:
+                compiled.warnings.append(
+                    f"Node '{info.name}' transitions to subgraph '{t.next}' without `==>` "
+                    "(no message history inheritance). Use `==>` or `==> <==` if the subgraph needs parent context."
+                )
+
     return compiled
 
 
-def validate_node_graph(node_dict: Dict[str, NodeInfo]) -> List[str]:
-    """静态校验节点图（语义分析）。"""
+def validate_node_graph(node_dict: Dict[str, NodeInfo], subgraph_names: Optional[set] = None) -> List[str]:
+    """静态校验节点图（语义分析）。
+
+    subgraph_names：已声明的子图名集合；指向子图的 transition 不算悬空。
+    """
     errors: List[str] = []
+    subgraph_names = subgraph_names or set()
     node_names = list(node_dict.keys())
     if not node_names:
         return errors
@@ -460,6 +550,8 @@ def validate_node_graph(node_dict: Dict[str, NodeInfo]) -> List[str]:
             target = t.next.strip()
             if target.lower() in ("end", "finish"):
                 continue
+            if target in subgraph_names:
+                continue  # 目标是子图节点，合法
             if target not in node_dict:
                 errors.append(f"Node '{name}' has transition targeting non-existent node '{target}'.")
     return errors

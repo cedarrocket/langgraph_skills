@@ -11,7 +11,8 @@
           "next": "CompileReport",
           "feedback": null,
           "require_approval": false,
-          "inherit_history": false
+          "inherit_history": false,
+          "replace_messages": false
         }
       ],
       "is_final": false,
@@ -34,14 +35,16 @@
           "next": "SearchInfo",
           "feedback": "Clarify the topic.",
           "require_approval": false,
-          "inherit_history": false
+          "inherit_history": false,
+          "replace_messages": false
         },
         {
           "condition": "findings complete",
           "next": "FormatReport",
           "feedback": null,
           "require_approval": true,
-          "inherit_history": false
+          "inherit_history": false,
+          "replace_messages": false
         }
       ],
       "is_final": false,

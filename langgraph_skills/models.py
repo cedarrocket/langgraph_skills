@@ -60,6 +60,7 @@ class Transition:
     feedback: Optional[str] = None  # 跳转时回传给目标状态的反馈
     require_approval: bool = False  # 是否需人工审批
     inherit_history: bool = False  # True（==>）：目标节点继承源节点的消息历史；False（->）：不继承（现状）
+    replace_messages: bool = False  # True（==>X<==）：调用子图时输出整体覆盖父图 messages（压缩等替换场景）
 
 
 @dataclass
@@ -122,11 +123,27 @@ class InputOption:
 
 
 @dataclass
+class SubGraphInfo:
+    """子图声明（`# [SubGraph] Name`）。
+
+    两种形态：
+      - nodes: 子图体 = 内部节点列表（形态 A，真子图）
+      - src:   子图体只有一行 `- **src**: path`，加载外部 skill 文件
+    """
+
+    name: str
+    nodes: Dict[str, NodeInfo] = field(default_factory=dict)
+    src: Optional[str] = None  # 外部 skill 文件路径（src 简写形态）
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
 class CompiledSkill:
     """`parse_compiled_skill` 的完整解析产物（IR）。"""
 
     global_text: str = ""
     nodes: Dict[str, NodeInfo] = field(default_factory=dict)
+    subgraphs: Dict[str, SubGraphInfo] = field(default_factory=dict)
     max_loops: int = DEFAULT_MAX_LOOPS
     tools: Dict[str, ToolInfo] = field(default_factory=dict)
     input_options: List[InputOption] = field(default_factory=list)

@@ -75,17 +75,18 @@ def render_transition_rules(spec: Dict[str, Any]) -> str:
      | expression_1 | Node_A | yes | msg_A |
      | expression_2 | Node_B | no | msg_B |
    - For a single unconditional transition, you can just use a list item:
-      - Default -> TargetNode       (no message history inheritance)
-      - Default ==> TargetNode      (inherit source node's message history)
+      - Default -> TargetNode            (no message history inheritance)
+      - Default ==> TargetNode           (inherit source node's message history)
+      - Default ==> TargetNode <==       (inherit + subgraph output replaces parent messages)
    - If the user wrote informal transition descriptions or shorthand (e.g., "go to Win", "跳转到 Finish"), translate them into standard list or table transitions.
-   - To mark that the target node should inherit the source node's message history, use `==>` instead of `->` in list form, or prefix the target in the table cell (e.g., `==> TargetNode`).
+   - To mark that the target node should inherit the source node's message history, use `==>` instead of `->` in list form, or prefix the target in the table cell (e.g., `==> TargetNode`). To mark that a subgraph call should replace the parent's messages, use `==> TargetNode <==`.
    - If the user did not write any transition logic for a non-final node, do not output any transitions; the interpreter will automatically fallback to sequential execution."""
 
 
 def render_section_rules(spec: Dict[str, Any]) -> str:
     s = spec["sections"]
     return f"""3. Preserve the global instructions (text before the first top-level section) and each node's task instructions unchanged, except for formatting them into standard markdown blocks.
-4. Recognized top-level sections are: `{s['config']['heading']}` (engine params like `max_loops`), `{s['io']['heading']}` (reader/writer), `{s['tools']['heading']}` (tool declarations), and `{s['state']['heading']}` (nodes). Preserve them exactly as-is.
+4. Recognized top-level sections are: `{s['config']['heading']}` (engine params like `max_loops`), `{s['io']['heading']}` (reader/writer), `{s['tools']['heading']}` (tool declarations), `{s['state']['heading']}` (nodes), and `{s['subgraph']['heading']}` (subgraphs: `## [Node]` children or `- **src**: path`). Preserve them exactly as-is.
 5. Unknown sections are allowed (source is markdown-first) and must be preserved verbatim as natural language."""
 
 

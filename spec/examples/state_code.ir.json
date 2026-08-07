@@ -11,7 +11,8 @@
           "next": "Win",
           "feedback": null,
           "require_approval": false,
-          "inherit_history": false
+          "inherit_history": false,
+          "replace_messages": false
         }
       ],
       "is_final": false,

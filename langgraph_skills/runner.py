@@ -45,7 +45,13 @@ def run_skill(
     skill_path: str,
     user_input: str = "",
     initial_deliverables: Optional[Dict[str, Any]] = None,
+    initial_messages: Optional[List[Any]] = None,
 ) -> Dict[str, Any]:
+    """执行 skill。
+
+    initial_messages：外部传入的初始消息列表（子图调用时传入父图 messages）。
+    返回 final_deliverables，且若 initial_messages 提供则附带 "messages" 键（压缩后回传）。
+    """
     print(f"1. Parsing and compiling skill graph: {skill_path}...", file=sys.stderr)
     compiled = parse_compiled_skill(skill_path)
     node_dict = compiled.nodes
@@ -97,7 +103,7 @@ def run_skill(
 
     start_node = list(node_dict.keys())[0]
     initial_state: AgentState = {
-        "messages": [HumanMessage(content=user_input)],
+        "messages": list(initial_messages) if initial_messages else [HumanMessage(content=user_input)],
         "global_instructions": compiled.global_text,
         "state_instructions": node_dict[start_node].instructions,
         "deliverables": initial_deliverables if initial_deliverables is not None else {},
@@ -108,6 +114,7 @@ def run_skill(
     }
 
     final_deliverables = initial_deliverables if initial_deliverables is not None else {}
+    final_messages = initial_state["messages"]
     if settings.api_key:
         for output in app.stream(initial_state):
             for key, value in output.items():
@@ -116,11 +123,15 @@ def run_skill(
                 if isinstance(value, dict):
                     if "deliverables" in value:
                         final_deliverables = value["deliverables"]
+                    if "messages" in value:
+                        final_messages = value["messages"]
                     if value.get("loop_count", 0) >= value.get("max_loops", 10) and value.get("next_state") == END:
                         final_deliverables["exit_code"] = 3
     else:
         print("DeepSeek API key not found. Graph compiled successfully but skipping execution.")
 
+    if initial_messages:
+        final_deliverables["messages"] = final_messages
     return final_deliverables
 
 
