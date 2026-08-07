@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -21,6 +21,7 @@ from langgraph_skills.models import AgentState
 from langgraph_skills.nodes import RunSkillFn, SafeInputFn, create_node, generic_router, tool_router
 from langgraph_skills.parser import parse_compiled_skill, validate_node_graph
 from langgraph_skills.tools import ToolRegistry, build_tool
+from langgraph_skills.triggers import Trigger
 
 
 def print_help(skill_path: str, input_options: list) -> None:
@@ -40,11 +41,12 @@ def build_graph(
     safe_input: Optional[SafeInputFn] = None,
     run_skill: Optional[RunSkillFn] = None,
     settings: Optional[Settings] = None,
+    triggers: Optional[List[Trigger]] = None,
 ):
     """编译 Markdown Skill 并返回标准的 LangGraph CompiledStateGraph 实例。
 
     每次构建使用独立的 ToolRegistry（每图隔离），不污染全局。
-    safe_input / run_skill / settings 透传给节点工厂（由 runner 注入）。
+    safe_input / run_skill / settings / triggers 透传给节点工厂（由 runner 注入）。
     """
     compiled = parse_compiled_skill(skill_path)
     node_dict = compiled.nodes
@@ -100,7 +102,7 @@ def build_graph(
 
     # 添加所有节点
     for name, info in node_dict.items():
-        workflow.add_node(name, create_node(info, tools, compiled.global_text, safe_input, run_skill, settings))
+        workflow.add_node(name, create_node(info, tools, compiled.global_text, safe_input, run_skill, settings, triggers))
 
     # 集中注册当前图的所有 Tools (合并成一个大 ToolNode)
     tools_node = ToolNode(tools.all())

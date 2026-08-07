@@ -115,19 +115,123 @@ python -m pip wheel . --no-deps -w /tmp/wheeltest  # 构建
 - **config 阶段启动外部驻留进程 + 运行时跨进程通信**（可行，成本中-高，**仅作 todo**）：生命周期管理（run_skill 结束前统一关闭）+ 通信协议（推荐 JSON 行协议 stdin/stdout 管道，跨进程"类 deliverables"）+ 进程注册表挂到 ExecutorContext（模式同 ToolRegistry）。
   - **暂不实现**：一切临时跨进程需求用 `type: script` 内联 subprocess 代码完成（**可行性已验证**：script 节点在解释器进程内 exec，可用 subprocess/管道轮询外部源；局限是每次冷启动子进程、长轮询阻塞节点，性能待未来解决）。
   - **通信双向性结论（已定）**：双向以 **runner 层事件循环轮询（拉）** 为主——外部进程写队列/文件/管道，runner 轮询后作为**新一轮输入**喂给 graph；**不做**"外部进程主动推入运行中的 graph"（那会破坏 graph 的纯函数契约，且 openswe/pi/opencode 档需求均可由"事件→新轮输入"覆盖）。graph 内核保持纯净，轮询与调度归 runner（B 外壳）。
+  - **架构方向结论（已定）**：**常驻运行时外置，解释器保持纯函数微内核**。外部 harness（常驻）通过 `lgskills run --json --resume <state.json>` 反复调用内核；内核保持"每次独立执行、无状态、纯函数"（现状已满足）。这**不破坏**"微内核 + 外部调度"设计——微内核的调度是图内调度（节点流转），外部调度的调度是图间调度（会话组织），两层次不重叠；微内核架构的宿主本就应常驻（类比 LLM+harness / DB+服务 / vim+script）。
+  - **判据（防设计倒退）**：内核每次调用独立、无状态、纯函数；**不得**在内核内加 session/连接/常驻循环。外部宿主负责状态持久化、并发、事件循环、交互。
 
-### 7.2 配置与外部语法（战略方向）
+### 7.2 迈向 harness 的能力差距清单（对标 opencode）
+
+> 战略评估：差距分**两个战略层**——①"常驻运行时"层是架构跳变（整体立项，不零散实现）；②"功能增强"层是增量（可在现有架构上添加）。
+
+**第一层：常驻运行时（互相咬合，整体立项）——对应 §7.1**
+- 6. 消息无界累积：`AgentState.messages` 用 add_messages 无限累积，无压缩/摘要/裁剪。opencode 有 compaction。
+- 8. 并行/事件驱动缺失：执行同步阻塞（`app.stream()`），单线程，无 asyncio/事件循环/后台任务。
+- 9. 无流式输出：`execute_llm` 用 `llm.invoke()`，无 `stream()` 逐 token。
+- 10. 无交互式 TUI/多路输入：只有 `safe_input`（stdin），无快捷键/多会话切换/历史。
+- 5. 无本地保存对话 + 中断恢复：无 checkpoint。**注**：LangGraph 原生支持 checkpointer；且"从特定步骤恢复"在外部宿主 + `--resume` 协议下由宿主负责（保存状态传给内核）。
+
+**第二层：功能增强（增量，不改变运行时模型）**
+- 1. 运行时动态切换 model（opencode 的 /model 交互式选择）——配置文件已完成，缺交互切换。
+- 7. 无 MCP（Model Context Protocol）——工具生态封闭，是 harness 级关键能力。
+- 12. 节点间数据契约弱：只靠 `deliverables["payload"]`（单字符串），无结构化类型传递。
+- 2. subagent 并行执行/管理——现无并行；临时可用 `type: script`+线程/子进程绕（性能受限），正式需并行调度。
+- 3. memory/truncate 管理——有 `history_window`（切片），但无主动 compaction；script 节点只能读 `messages` 不能结构化改写。
+- 4. 程序化条件跳转——condition 目前仅作 LLM 提示（`has_conditional_transitions`），**无程序化求值**；与"DSL 不引入表达式"原则冲突，需设计权衡（可走"DSL 条件引用外部 script/pipe 函数返回判断值"而非 DSL 内表达式）。
+
+### 7.3 配置与外部语法（战略方向）
 
 - 允许 config / tool 设置从 markdown 解耦到 YAML/JSON 等标准格式（当前 `# [Config]`/`# [IO]`/`# [Tools]` 用 markdown 列表，单机 MVP 够用）。
 - config 路径支持：1) 默认文件路径，允许字头协议（如 `redis://127.0.0.1:6379/agent_config_key`）；2) 系统变量展开（如 `${AGENT_CONFIG_URI}`）。
 - **触发时机**：出现真实多 agent / 分布式配置需求时。当前 markdown config 不阻塞。
 
-### 7.3 其它（低优先 / 长期搁置）
+### 7.4 其它（低优先 / 长期搁置）
 
 - **langgraph 特性微调**（如 reducer、checkpoint 配置）：power-user 功能，普通用户用不到，长期搁置。
-- **userid 选项**：功能极小（config 字段 + 注入 deliverables），但价值依赖 §7.2 的配置加载机制，随 §7.2 做。
+- **userid 选项**：功能极小（config 字段 + 注入 deliverables），但价值依赖 §7.3 的配置加载机制，随 §7.3 做。
 - **图可视化依赖**（pygraphviz 等）：见 §3 图可视化说明，不加入项目依赖。
 
-### 7.4 性能结论（已定，防将来纠结）
+### 7.5 性能结论（已定，防将来纠结）
 
 Python 不构成瓶颈，保持 Python 不迁移（详见 §1 核心原则）。优化方向是解析/构图缓存、asyncio 并发、消息历史裁剪，而非换语言。
+
+### 7.6 Boundaries/Trigger 实现计划书（已确认，待实施）
+
+> 对标 openswe（langchain-ai/open-swe）调研结论：其 12 层 middleware 栈（洋葱模型）实为"操作级介入"的完整形态；
+> 我们将其简化为"统一触发器 + 外部处理程序"（业务逻辑外置，复用 type:script 注入模式）。
+> 架构原则：骨架用显式状态机（我们的差异化），血肉交给 LLM，介入走 trigger。
+> **实现状态：核心机制已完成**（triggers.py + 检查点埋点 + triggers.json 加载 + 108 测试全绿）。
+
+#### 设计决策（全部已锁定）
+
+| # | 决策 |
+|---|---|
+| 0 | 独立 JSON 文件：`triggers.json`（全局 `~/.config/langgraph_skills/` + 项目根，复用三层配置合并） |
+| 1 | MVP 不做表达式暴露限制，直接检查所有变量；**留安全管理架子**（ALLOWED_AST_NODES + 空实现 allowlist） |
+| 2 | pyfunction 条件返回 **True 即触发** |
+| 3 | 语法糖（max_loops/history_window/require_approval）保留 DSL；JSON 存在时允许语法糖缺失（JSON 优先） |
+| 4 | MVP 允许一切函数调用；**留安全管理架子** |
+| 5 | condition 用 Python 条件表达式（如 `context_length > 5000`）或 `pyfunction:xxx.py` |
+| 6 | 检查点**隐式映射**（用户不声明）：context_length→pre_llm、loop_count→post_node、error_flag→on_error、自定义→pre_llm |
+
+#### triggers.json 格式
+
+```json
+{
+  "triggers": [
+    { "condition": "context_length > 5000", "on_trigger": "handle_overlong.py" },
+    { "condition": "pyfunction:check_grade.py", "on_trigger": "handle_grade.py" }
+  ]
+}
+```
+
+#### 语法糖 → 内置 trigger 展开
+
+```
+max_loops: 5        → {post_node, "loop_count > 5", 内置 force_END}
+history_window: 10  → {pre_llm, "context_length > 10", 内置 slice}
+require_approval    → {on_transition, 内置 safe_input 审批}
+```
+
+#### 触发处理程序
+
+- 复用 type:script 执行（读 on_trigger 文件，注入 deliverables/messages/get_payload/transition_to）
+- 处理程序自行决定：改状态 / 拦截（不跳转）/ 重试（transition_to 本节点）/ 压缩（改 messages）
+- 未来留 `compact()` 统一接口（MVP 靠处理器自己改 messages）
+
+#### 表达式静态检查（解析时，非运行时）
+
+```python
+def check_condition_expr(expr, scope_vars):
+    tree = ast.parse(expr, mode="eval")     # 语法错误 → ParseError
+    # 收集 Name 节点 vs scope_vars（所有已定义变量）→ 未定义 → ParseError
+    # MVP：允许一切函数；留 ALLOWED_AST_NODES 架子
+```
+
+作用域变量集（MVP 全开放）：`context_length`/`loop_count`/`error_flag`/`deliverables`/`messages`/`current_node`/`max_loops`/`next_state`
+
+#### 模块改动清单
+
+| 模块 | 改动 |
+|---|---|
+| 新增 `triggers.py` | Trigger 数据类、注册表、检查点分发、condition 求值、表达式静态检查 |
+| `config.py` | 加载 triggers.json（全局 + 项目合并）、解析 triggers 段 |
+| `parser.py` | 语法糖归一化时注册为内置 trigger；解析 triggers.json 引用 |
+| `models.py` | Trigger dataclass、NodeInfo/CompiledSkill 增加 trigger 字段 |
+| `executors.py` | pre_llm 检查点（invoke 前，~L245）、on_error 检查点；compact() 注入架子 |
+| `nodes.py` | post_node 检查点（~L139 前）调用 trigger 分发 |
+| `graph.py`/`runner.py` | 传递 triggers 配置到节点工厂 |
+
+#### 实施顺序
+
+triggers.py 核心 → 检查点埋点 → 语法糖展开 → triggers.json 加载 → 测试（test_triggers.py + config/parser 扩展）
+
+#### 待实施时确认的遗留项
+
+- 触发处理程序是否需显式 `trigger_result`（拦截/放行）注入，还是 MVP 靠"改状态+不跳转"隐式表达（倾向后者）
+
+### 7.7 架构方向结论（openswe 调研后定案）
+
+- **模型选择**：粒度 = skill 级（图级统一），不节点级混用；唯一 pyfunction 接口（开发者自写逻辑），无 DSL 语法糖、无能力映射；兜底链 pyfunction > config.json > 内置默认；LLM 自主选模型 → subagent 类型（未来）
+- **介入分层**：轮次级 = init 节点（外部输入/事件/模型重配/轮次级压缩）；操作级 = trigger（本计划书 §7.6）；节点级只接受 DSL 声明（history_window 等），不接受外部介入
+- **常驻形态**：图自环（最后节点→init）= 图内多轮迭代（标准做法），但"外部可控多轮会话"必须外部宿主（--json/--resume 协议），内核保持纯函数
+- **上下文管理双层**：节点级 = DSL 声明（executor 执行）；轮次级 = init 阶段 compaction；单点 init 做不了节点级策略（结构性边界）
+- **subagent 类型**（未来）：openswe 式自由循环作为状态机内的一个节点类型（外层静态跳转约束 + 内层 LLM 自主推进），退出后回跳转表

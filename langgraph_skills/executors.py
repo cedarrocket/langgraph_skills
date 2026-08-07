@@ -242,6 +242,12 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
             current_node_messages = current_node_messages[slice_idx:]
 
     messages = [HumanMessage(content=sys_prompt)] + current_node_messages
+
+    # pre_llm 检查点：触发 context_length 等边界条件（LLM 调用前）
+    llm_triggers = ctx.config.get("triggers", []) if isinstance(ctx.config, dict) else []
+    if llm_triggers:
+        _run_pre_llm_checkpoint(llm_triggers, info, state, messages)
+
     response = llm_with_tools.invoke(messages)
 
     out_msgs: List[BaseMessage] = [response]
@@ -306,3 +312,37 @@ def register_executor(node_type: str, fn: ExecutorFn) -> None:
 
 def get_executor(node_type: str) -> Optional[ExecutorFn]:
     return EXECUTOR_REGISTRY.get(node_type)
+
+
+def _run_pre_llm_checkpoint(
+    triggers: List[Any],
+    info: NodeInfo,
+    state: AgentState,
+    messages: List[BaseMessage],
+) -> None:
+    """pre_llm 检查点：LLM 调用前求值 context_length 等边界条件并触发 handler。"""
+    from langgraph_skills.triggers import (
+        CHECKPOINT_PRE_LLM,
+        evaluate_condition,
+        run_handler,
+        triggers_for_checkpoint,
+    )
+
+    scope = {
+        "context_length": sum(len(getattr(m, "content", "") or "") for m in messages),
+        "loop_count": state.get("loop_count", 0),
+        "current_node": state.get("current_node", ""),
+        "next_state": state.get("next_state", ""),
+        "deliverables": state.get("deliverables", {}),
+        "messages": state.get("messages", []),
+        "error_flag": state.get("error_flag", False),
+    }
+    for trigger in triggers_for_checkpoint(triggers, CHECKPOINT_PRE_LLM):
+        if not trigger.on_trigger:
+            continue
+        try:
+            if evaluate_condition(trigger, scope):
+                print(f"  [Trigger] Node '{info.name}': condition '{trigger.condition}' fired (pre_llm).")
+                run_handler(trigger.on_trigger, scope)
+        except Exception as e:
+            print(f"  [Trigger] Node '{info.name}': trigger error: {e}")

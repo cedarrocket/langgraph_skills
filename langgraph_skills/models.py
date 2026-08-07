@@ -76,6 +76,7 @@ class NodeInfo:
     output_schema: Optional[Dict[str, Any]] = None
     history_window: Optional[int] = None
     max_loops: Optional[int] = None  # None 表示继承全局 max_loops
+    triggers: List[Dict[str, Any]] = field(default_factory=list)  # 节点级 trigger 配置（dict 形式）
 
     @property
     def is_script(self) -> bool:
@@ -129,6 +130,7 @@ class CompiledSkill:
     tools: Dict[str, ToolInfo] = field(default_factory=dict)
     input_options: List[InputOption] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    triggers: List[Dict[str, Any]] = field(default_factory=list)  # 全局 trigger 配置（dict 形式）
 
     @property
     def start_node(self) -> Optional[str]:

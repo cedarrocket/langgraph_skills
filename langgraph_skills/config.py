@@ -16,7 +16,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # 环境变量名（统一前缀 LGSKILLS_）
 ENV_MODEL = "LGSKILLS_MODEL"
@@ -34,6 +34,7 @@ DEFAULT_PROVIDER = "deepseek"
 # 配置文件名
 GLOBAL_CONFIG_DIR = "langgraph_skills"
 GLOBAL_CONFIG_NAME = "config.json"
+TRIGGERS_CONFIG_NAME = "triggers.json"
 PROJECT_CONFIG_NAME = "lgskills.json"
 
 
@@ -120,6 +121,39 @@ def load_config(
             data = _load_json(path)
             merged = _deep_merge(merged, data)
     return expand_config(merged)
+
+
+def load_triggers(
+    global_path: Optional[Path] = None,
+    project_path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """加载 triggers.json（全局 + 项目），返回 triggers 列表（拼接，非覆盖）。
+
+    triggers.json 是独立文件（PROCESS.md §7.6 决策 #0），与 config.json 分开。
+    全局与项目的 triggers 列表**拼接**：两者都生效，项目条目在后。
+    """
+    triggers: List[Dict[str, Any]] = []
+    for path in [
+        global_path or _global_config_path().with_name(TRIGGERS_CONFIG_NAME),
+        project_path or _triggers_project_path(),
+    ]:
+        if path is not None and path.exists():
+            data = _load_json(path)
+            raw = data.get("triggers", []) if isinstance(data, dict) else []
+            if isinstance(raw, list):
+                triggers.extend(item for item in raw if isinstance(item, dict))
+    # 逐条展开变量引用（expand_config 只接受 dict）
+    return [expand_config(item) for item in triggers]
+
+
+def _triggers_project_path() -> Optional[Path]:
+    """项目目录下查找 triggers.json（与 lgskills.json 同级）。"""
+    cwd = Path.cwd()
+    for parent in [cwd, *cwd.parents]:
+        candidate = parent / TRIGGERS_CONFIG_NAME
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:

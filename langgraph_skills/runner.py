@@ -17,11 +17,12 @@ from typing import Any, Dict, List, Optional
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END
 
-from langgraph_skills.config import Settings
+from langgraph_skills.config import Settings, load_triggers
 from langgraph_skills.graph import build_graph, print_help
 from langgraph_skills.models import AgentState
 from langgraph_skills.parser import parse_compiled_skill, validate_node_graph
 from langgraph_skills.tools import ToolRegistry, build_tool
+from langgraph_skills.triggers import load_triggers_from_config
 
 
 def safe_input(prompt: str) -> str:
@@ -83,12 +84,15 @@ def run_skill(
 
     # 动态构建并注册工具及运行 Option 中的 reader 属性
     settings = Settings.load()
+    trigger_dicts = load_triggers()
+    triggers = load_triggers_from_config({"triggers": trigger_dicts}) if trigger_dicts else []
     app = build_graph(
         skill_path,
         initial_deliverables,
         safe_input=safe_input,
         run_skill=run_skill,
         settings=settings,
+        triggers=triggers,
     )
 
     start_node = list(node_dict.keys())[0]

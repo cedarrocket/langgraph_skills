@@ -26,6 +26,13 @@ from langgraph_skills.config import (
 from langgraph_skills.executors import ExecutorContext, get_executor
 from langgraph_skills.models import AgentState, NodeInfo
 from langgraph_skills.tools import ToolRegistry
+from langgraph_skills.triggers import (
+    CHECKPOINT_POST_NODE,
+    Trigger,
+    evaluate_condition,
+    run_handler,
+    triggers_for_checkpoint,
+)
 
 SafeInputFn = Callable[[str], str]
 RunSkillFn = Callable[..., Dict[str, Any]]
@@ -38,13 +45,14 @@ def create_node(
     safe_input: Optional[SafeInputFn] = None,
     run_skill: Optional[RunSkillFn] = None,
     settings: Optional[Settings] = None,
+    triggers: Optional[List[Trigger]] = None,
 ):
     """动态生成通用的 LangGraph 节点处理函数。
 
-    节点级通用逻辑（loop 计数、JSON 校验、人工审批门）在此；
+    节点级通用逻辑（loop 计数、JSON 校验、人工审批门、post_node trigger）在此；
     状态类型逻辑委托给 executors.EXECUTOR_REGISTRY（可插拔）。
 
-    safe_input / run_skill / settings 由调用方（graph.build_graph）注入，
+    safe_input / run_skill / settings / triggers 由调用方（graph.build_graph）注入，
     避免 nodes 反向依赖 runner / config 加载逻辑。
     """
 
@@ -80,6 +88,7 @@ def create_node(
             model=(settings.model if settings else DEFAULT_MODEL),
             base_url=(settings.base_url if settings else DEFAULT_BASE_URL),
             temperature=(settings.temperature if settings else DEFAULT_TEMPERATURE),
+            config={"triggers": triggers or []},
         )
         result = executor(ctx)
         next_state = result.next_state
@@ -136,6 +145,22 @@ def create_node(
                             f"{feedback_msg}\nPlease revise the output."
                         )
 
+        # post_node 检查点：触发 loop_count 等边界条件
+        if triggers:
+            _run_node_checkpoint(
+                triggers,
+                node_info.name,
+                {
+                    "loop_count": current_loops,
+                    "current_node": node_info.name,
+                    "next_state": next_state,
+                    "deliverables": deliverables,
+                    "messages": state.get("messages", []),
+                    "error_flag": state.get("error_flag", False),
+                    "transition_to": None,  # post_node 阶段不允许跳转（已定 next_state）
+                },
+            )
+
         ret: Dict[str, Any] = {
             "next_state": next_state,
             "deliverables": deliverables,
@@ -176,3 +201,23 @@ def generic_router(state: AgentState):
 def tool_router(state: AgentState):
     """ToolNode 执行完毕后，通用路由回原来的触发节点，形成 ReAct 闭环。"""
     return state.get("current_node") or END
+
+
+def _run_node_checkpoint(
+    triggers: List[Trigger],
+    node_name: str,
+    scope: Dict[str, Any],
+) -> None:
+    """post_node 检查点：求值并触发本节点的触发器。
+
+    trigger 作用域：全局 trigger（checkpoint=post_node）在当前节点执行后触发。
+    """
+    for trigger in triggers_for_checkpoint(triggers, CHECKPOINT_POST_NODE):
+        if not trigger.on_trigger:
+            continue
+        try:
+            if evaluate_condition(trigger, scope):
+                print(f"  [Trigger] Node '{node_name}': condition '{trigger.condition}' fired.")
+                run_handler(trigger.on_trigger, scope)
+        except Exception as e:
+            print(f"  [Trigger] Node '{node_name}': trigger error: {e}")
