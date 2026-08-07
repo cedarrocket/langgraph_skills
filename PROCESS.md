@@ -1,5 +1,7 @@
 # 项目维护流程（Process）
 
+> 此文档由 LLM 辅助生成，后续会更新人工版本。
+
 > 本文档是项目的**标准操作流程（SOP）**记录。凡是"未来应当遵循的标准步骤"、
 > 自动化/半自动化工具及其用法、踩过的坑与排查方法，都统一记录在这里。
 > 新增约定请追加到对应小节，保持单一事实来源。
@@ -94,23 +96,6 @@ python -m pip wheel . --no-deps -w /tmp/wheeltest  # 构建
 
 > 说明：`_archive/`、`build/`、`.conda/`、`__pycache__/`、`*.egg-info/` 等已在
 > `.gitignore` 中，不入库。
-
-## 6. 当前重构单子（进行中）
-
-见会话讨论中的 11 条单子。当前进度：
-- [x] 第 1 条 前置：spec 草稿 + gen_docs.py 参考生成器（**文档定稿走 §2.3 手动方式**）
-- [ ] 金标准示例生成（方案 A：由 parser 生成初稿 + 人工审）
-- [ ] gen_compiler_prompt.py（spec → COMPILER_PROMPT）
-- [x] IR 模型定稿 + parser 重写（models.py / parser.py，见下方模块结构）
-- [x] executors 可插拔（executors.py：EXECUTOR_REGISTRY + register_executor 扩展点 + 沙箱 config 扩展点）
-- [x] tools 每图隔离（tools.py：ToolRegistry 每次 build_graph 新建 + TOOL_FACTORIES 可扩展）
-- [x] config 参数化（config.py：Settings.from_env()，LGSKILLS_MODEL/BASE_URL/TEMPERATURE/STRICT；去掉 run_skill 全局 env 副作用）
-- [x] CLI 统一（唯一入口 cli.py；删 compiler.py 底部 __main__ 块；lgskills / python -m langgraph_skills 双入口已验证）
-- [x] **interpreter.py 拆分**：-> nodes.py（节点工厂+路由器）/ graph.py（图构建）/ runner.py（运行时+CLI），循环依赖靠参数注入打破，interpreter.py 已删除
-- [x] 文档生成收尾（README 更新为新模块结构 + spec/生成管线 + 架构分区）
-- [x] 测试补齐（48 个测试：config/parser/tools/executors/router/graph/nodes 全覆盖，覆盖率 59%，核心 parser/models/config 87-93%）
-- [x] 冗余清理：删除重复文件（test_skills/assistant_compiled_lg.md / code_reviewer_draft.md / compiler_skill.md）；mypy 移入 dev+agents extra；同步 README/requirements/gen_docs 引用
-- [ ] 首次提交（用户明确暂不提交，等待后续重构工作）
 
 ## 7. Backlog（未来规划，非当前优先）
 
