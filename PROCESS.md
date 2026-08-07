@@ -133,7 +133,7 @@ python -m pip wheel . --no-deps -w /tmp/wheeltest  # 构建
 - 1. 运行时动态切换 model（opencode 的 /model 交互式选择）——配置文件已完成，缺交互切换。
 - 7. 无 MCP（Model Context Protocol）——工具生态封闭，是 harness 级关键能力。
 - 12. 节点间数据契约弱：只靠 `deliverables["payload"]`（单字符串），无结构化类型传递。
-- 2. subagent 并行执行/管理——现无并行；临时可用 `type: script`+线程/子进程绕（性能受限），正式需并行调度。
+- 2. subagent 并行执行/管理——**静态 fan-out/fan-in 已实现**（`Parallel ==> A, B, C` 语法 + 自动 join 合并，见 §7.8）；动态并行（Send API 按运行时任务数分发）与 subagent 类型未做，临时可用 `type: script`+线程/子进程绕。
 - 3. memory/truncate 管理——有 `history_window`（切片），但无主动 compaction；script 节点只能读 `messages` 不能结构化改写。
 - 4. 程序化条件跳转——condition 目前仅作 LLM 提示（`has_conditional_transitions`），**无程序化求值**；与"DSL 不引入表达式"原则冲突，需设计权衡（可走"DSL 条件引用外部 script/pipe 函数返回判断值"而非 DSL 内表达式）。
 
@@ -312,3 +312,36 @@ triggers.py 核心 → 检查点埋点 → 语法糖展开 → triggers.json 加
 - **常驻形态**：图自环（最后节点→init）= 图内多轮迭代（标准做法），但"外部可控多轮会话"必须外部宿主（--json/--resume 协议），内核保持纯函数
 - **上下文管理双层**：节点级 = DSL 声明（executor 执行）；轮次级 = init 阶段 compaction；单点 init 做不了节点级策略（结构性边界）
 - **subagent 类型**（未来）：openswe 式自由循环作为状态机内的一个节点类型（外层静态跳转约束 + 内层 LLM 自主推进），退出后回跳转表
+
+### 7.8 静态 fan-out / fan-in（并行分支 + 收敛合并，✅ 已实现）
+
+**定位**：工作流型并行原语（LangGraph 简易版的核心功能之一）。它是动态并行（Send API）的地基——Send = "运行时才知道分支数"的 fan-out。
+
+**语法**（零新前缀，复用现有 transition 语法）：
+```markdown
+## [Transitions]
+- Parallel ==> 检索A, 检索B, 检索C    # 列表：逗号/分号分隔
+| Condition | Next Node |
+| --- | --- |
+| Parallel | 检索A, 检索B |     # 表格同样支持
+```
+- 解析为多个 `parallel=True` 的 Transition
+- 代码节点程序化扇出：`transition_to(["A", "B"], payload)`
+- **fan-in 零语法**：多分支共同目标自动成为 join 节点（LangGraph 调度器等所有入边来源——含链式分支链尾——完成后触发一次）
+
+**合并规则**（fan-in 时节点收到的 state）：
+| channel | reducer | 行为 |
+|---|---|---|
+| `messages` | add_messages | 追加合并，按 ID 去重 |
+| `deliverables` | merge_dicts（新增） | 字段级合并，各分支写独立 key |
+| current_node/next_state/loop_count/max_loops | last_wins（新增） | 多分支写同 key 不冲突（后到覆盖） |
+
+**验证**（实验结论）：
+- join 节点只触发一次，且收到全部分支合并产出
+- 提前 END 的分支 → join 永不触发（死等）→ **validator 强制检查**：fan-out 分支必须收敛到共同 join
+- 链式分支（A→B→C 与 A→D 并行）join 等待链尾 C、D
+- 并行真实生效（两个 0.3s 分支耗时 ~0.3s 而非 0.6s）
+
+**实现**：models.py（Transition.parallel + merge_dicts/last_wins reducer）、parser.py（Parallel 前缀 + 拆分）、nodes.py（next_state 列表 + generic_router 原样返回）、parser.py validator（收敛检查）。测试 test_parallel.py（7 个）。
+
+**未来**：动态并行（Send API，map-reduce 场景如"每段一个 worker"）在此机制上扩展；subagent 类型（§7.7）依赖它。

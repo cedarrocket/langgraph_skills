@@ -54,7 +54,7 @@ class ExecutorContext:
 class ExecutorResult:
     """执行器输出；node 层在此基础上做通用后处理（JSON 校验/审批门）。"""
 
-    next_state: Optional[str] = None
+    next_state: Optional[Any] = None  # str 或 str 列表（fan-out 多目标）
     payload: Optional[str] = None
     output_messages: Optional[List[BaseMessage]] = None
 
@@ -79,9 +79,9 @@ def execute_code(ctx: ExecutorContext) -> ExecutorResult:
     info = ctx.node_info
     code_str = _strip_code_fence(info.instructions)
 
-    local_outputs: Dict[str, Optional[str]] = {"next_state": None, "payload": None}
+    local_outputs: Dict[str, Optional[Any]] = {"next_state": None, "payload": None}
 
-    def transition_to(next_state_name: str, payload_data: str) -> None:
+    def transition_to(next_state_name: Any, payload_data: str) -> None:
         local_outputs["next_state"] = next_state_name
         local_outputs["payload"] = payload_data
 
@@ -113,9 +113,9 @@ def execute_script(ctx: ExecutorContext) -> ExecutorResult:
     with open(script_path, "r", encoding="utf-8") as f:
         code_str = f.read()
 
-    local_outputs: Dict[str, Optional[str]] = {"next_state": None, "payload": None}
+    local_outputs: Dict[str, Optional[Any]] = {"next_state": None, "payload": None}
 
-    def transition_to(next_state_name: str, payload_data: str) -> None:
+    def transition_to(next_state_name: Any, payload_data: str) -> None:
         local_outputs["next_state"] = next_state_name
         local_outputs["payload"] = payload_data
 

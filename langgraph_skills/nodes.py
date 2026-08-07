@@ -118,8 +118,11 @@ def create_node(
         if result.payload is not None:
             deliverables["payload"] = result.payload
 
+        # fan-out：next_state 为列表（并行多目标），跳过单目标专用逻辑（JSON 校验/审批门）
+        is_fan_out = isinstance(next_state, list)
+
         # JSON Schema 校验与人工审批门 (通用逻辑)
-        if next_state and next_state != node_info.name and not node_info.is_final:
+        if next_state and next_state != node_info.name and not node_info.is_final and not is_fan_out:
             if node_info.output_schema and deliverables.get("payload"):
                 raw_payload = deliverables["payload"].strip()
                 if raw_payload.startswith("```"):
@@ -191,9 +194,12 @@ def create_node(
             "current_node": node_info.name,
         }
         # 跳转子图时，标记 replace_messages（==> X <== 覆盖语义由父图后处理节点执行）
-        if next_state and subgraph_names and next_state in subgraph_names:
-            matching_trans = next((t for t in node_info.transitions if t.next == next_state), None)
-            deliverables["_replace_messages"] = bool(matching_trans and matching_trans.replace_messages)
+        targets: List[Any] = next_state if isinstance(next_state, list) else [next_state]
+        for target in targets:
+            if target and subgraph_names and target in subgraph_names:
+                matching_trans = next((t for t in node_info.transitions if t.next == target), None)
+                if matching_trans and matching_trans.replace_messages:
+                    deliverables["_replace_messages"] = True
         if output_messages is not None:
             ret["messages"] = output_messages
         return ret

@@ -204,6 +204,20 @@ semantics:
       syntax: "`==> Target <==`（列表）或 Next Node 单元格 `==> Target <==`（表格）"
       semantics: "调用子图时，子图输出（messages）整体覆盖父图 messages（压缩等替换场景）；不带 `<==` 时子图输出合并回父图（追加新增，按 ID 去重）"
       scope: "仅对跳转子图有效；普通节点间跳转不适用"
+    parallel:
+      syntax: "`- Parallel ==> A, B, C`（列表，逗号/分号分隔）或表格 Condition 列写 `Parallel`"
+      semantics: >
+        fan-out：一个节点并行分发到多个目标节点（解析为多个 parallel=True 的 Transition）。
+        代码节点也可直接 transition_to([\"A\", \"B\"], payload) 程序化扇出。
+        fan-in（零语法）：任何节点作为多个分支的共同目标即自动成为 join 节点；
+        LangGraph 调度器等所有入边来源（含链式分支的链尾）完成后才触发一次。
+      merge:
+        messages: "add_messages 追加合并（按 ID 去重）"
+        deliverables: "字段级字典合并（各分支写独立 key；同 key 后到覆盖）"
+        single_value_keys: "current_node / next_state / loop_count / max_loops 用 last-wins reducer（fan-in 多分支写同 key 不冲突）"
+      code_node: "代码节点可写 `transition_to([\"A\", \"B\"], ...)` 程序化扇出（列表 = 并行）"
+      validator: "fan-out 分支必须收敛到共同 join 节点，否则报错（join 永不触发 = 死等）"
+      scope: "任意节点类型均适用（列表/表格形式）"
 
   # 循环预算
   max_loops:

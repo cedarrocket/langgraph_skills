@@ -9,6 +9,7 @@
         {
           "condition": null,
           "next": "CompileReport",
+          "parallel": false,
           "feedback": null,
           "require_approval": false,
           "inherit_history": false,
@@ -33,6 +34,7 @@
         {
           "condition": "topic unclear",
           "next": "SearchInfo",
+          "parallel": false,
           "feedback": "Clarify the topic.",
           "require_approval": false,
           "inherit_history": false,
@@ -41,6 +43,7 @@
         {
           "condition": "findings complete",
           "next": "FormatReport",
+          "parallel": false,
           "feedback": null,
           "require_approval": true,
           "inherit_history": false,

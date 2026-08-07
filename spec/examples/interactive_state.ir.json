@@ -9,6 +9,7 @@
         {
           "condition": "user says end and requirements are clear",
           "next": "GenerateDoc",
+          "parallel": false,
           "feedback": "Proceed to generate document.",
           "require_approval": false,
           "inherit_history": false,
@@ -17,6 +18,7 @@
         {
           "condition": "requirements need further clarification",
           "next": "Refine",
+          "parallel": false,
           "feedback": "Continue clarifying.",
           "require_approval": false,
           "inherit_history": false,

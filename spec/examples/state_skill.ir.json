@@ -9,6 +9,7 @@
         {
           "condition": null,
           "next": "GenerateInfoChild",
+          "parallel": false,
           "feedback": null,
           "require_approval": false,
           "inherit_history": false,
@@ -31,6 +32,7 @@
         {
           "condition": null,
           "next": "ReportResult",
+          "parallel": false,
           "feedback": null,
           "require_approval": false,
           "inherit_history": false,

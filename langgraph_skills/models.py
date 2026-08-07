@@ -57,21 +57,39 @@ def messages_reducer(current: Optional[list], incoming: Any) -> list:
     return list(merged) if not isinstance(merged, list) else merged
 
 
+def merge_dicts(current: Optional[dict], incoming: Any) -> dict:
+    """deliverables channel 的 reducer：字段级字典合并（fan-in 合并规则）。
+
+    并行分支（fan-out）各写独立 key，join 节点收到合并后的完整字典；
+    同 key 多分支写入时后到覆盖（文档化语义，避免单值冲突报错）。
+    """
+    merged = dict(current or {})
+    if isinstance(incoming, dict):
+        merged.update(incoming)
+    return merged
+
+
+def last_wins(current: Any, incoming: Any) -> Any:
+    """单值 channel 的 reducer：后到覆盖（fan-in 时多分支写同值 key 不冲突）。"""
+    return incoming
+
+
 class AgentState(TypedDict):
     """LangGraph 图上流动的状态。
 
     `messages` 由 messages_reducer 累积（支持整体替换），
+    `deliverables` 由 merge_dicts 字段级合并（支持 fan-in 并行合并），
     其余字段作为节点间传递的上下文。
     """
 
     messages: Annotated[list, messages_reducer]
     global_instructions: str
     state_instructions: str
-    deliverables: dict
-    current_node: str
-    next_state: str
-    loop_count: int
-    max_loops: int
+    deliverables: Annotated[dict, merge_dicts]
+    current_node: Annotated[str, last_wins]
+    next_state: Annotated[str, last_wins]
+    loop_count: Annotated[int, last_wins]
+    max_loops: Annotated[int, last_wins]
 
 
 @dataclass
@@ -80,6 +98,7 @@ class Transition:
 
     condition: Optional[str] = None  # 条件；None 表示无条件（Default）
     next: str = ""  # 目标状态名
+    parallel: bool = False  # True：fan-out 并行目标（多个 parallel=True 的 Transition 组成一组并行分支）
     feedback: Optional[str] = None  # 跳转时回传给目标状态的反馈
     require_approval: bool = False  # 是否需人工审批
     inherit_history: bool = False  # True（==>）：目标节点继承源节点的消息历史；False（->）：不继承（现状）

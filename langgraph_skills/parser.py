@@ -122,21 +122,24 @@ def parse_markdown_table_transitions(lines: list) -> List[Transition]:
             cond = row_dict.get("condition") or row_dict.get("cond")
             if cond and cond.lower() in ("default", "none", "", "any"):
                 cond = None
+            is_parallel = bool(cond and cond.lower() == "parallel")
             feedback = row_dict.get("feedback")
             if feedback == "":
                 feedback = None
             req_app_val = row_dict.get("require approval") or row_dict.get("require_approval") or ""
             require_approval = req_app_val.lower() in ("yes", "true")
-            transitions.append(
-                Transition(
-                    condition=cond,
-                    next=next_state,
-                    feedback=feedback,
-                    require_approval=require_approval,
-                    inherit_history=inherit_history,
-                    replace_messages=replace_messages,
+            for target in _split_parallel_targets(next_state, is_parallel):
+                transitions.append(
+                    Transition(
+                        condition=cond,
+                        next=target,
+                        parallel=is_parallel,
+                        feedback=feedback,
+                        require_approval=require_approval,
+                        inherit_history=inherit_history,
+                        replace_messages=replace_messages,
+                    )
                 )
-            )
     return transitions
 
 
@@ -159,21 +162,25 @@ def parse_markdown_list_transitions(lines: list) -> List[Transition]:
             if arrow not in item:
                 continue
 
-            # Default ==> TargetState / Default -> TargetState
-            if "default" in item.lower():
-                right_side = item.split(arrow, 1)[1].strip()
+            # Default ==> TargetState / Default -> TargetState / Parallel ==> A, B, C
+            if "default" in item.lower() or "parallel" in item.lower():
+                is_parallel = "parallel" in item.lower()
+                right_side = item.split(arrow, 1)[1].strip() if arrow in item else ""
                 if replace_messages:
                     right_side = right_side.replace("<==", "").strip()
                 require_approval = "[require approval]" in right_side.lower() or "(require approval)" in right_side.lower()
                 next_state = right_side.split("(")[0].split("[")[0].strip()
-                transitions.append(
-                    Transition(
-                        next=next_state,
-                        require_approval=require_approval,
-                        inherit_history=inherit_history,
-                        replace_messages=replace_messages,
+                # Parallel 前缀：逗号/分号分隔多个并行目标
+                for target in _split_parallel_targets(next_state, is_parallel):
+                    transitions.append(
+                        Transition(
+                            next=target,
+                            parallel=is_parallel,
+                            require_approval=require_approval,
+                            inherit_history=inherit_history,
+                            replace_messages=replace_messages,
+                        )
                     )
-                )
                 continue
 
             # If `cond` ==> TargetState (Feedback: "...") [Require Approval]
@@ -210,6 +217,19 @@ def parse_markdown_list_transitions(lines: list) -> List[Transition]:
                     )
                 )
     return transitions
+
+
+def _split_parallel_targets(next_state: str, is_parallel: bool) -> List[str]:
+    """Parallel 前缀的 transition 目标拆分：逗号/分号分隔多个并行目标。
+
+    非 parallel（Default）时原样返回单目标。
+    """
+    if not is_parallel:
+        return [next_state]
+    targets = [t.strip() for t in re.split(r"[,;]", next_state) if t.strip()]
+    if not targets:
+        raise ParseError("Parallel transition requires at least one target.")
+    return targets
 
 
 def parse_transitions(body_lines: List[str]) -> List[Transition]:
@@ -557,6 +577,23 @@ def validate_node_graph(node_dict: Dict[str, NodeInfo], subgraph_names: Optional
     if not node_names:
         return errors
 
+    def reachable(start: str, seen: Optional[set] = None) -> set:
+        """从 start 节点出发，沿 transitions 可达的节点集合（含 END 虚拟节点）。"""
+        seen = seen if seen is not None else set()
+        info = node_dict.get(start)
+        if start in seen or info is None:
+            return seen
+        seen.add(start)
+        for t in info.transitions:
+            target = t.next.strip()
+            if target.lower() in ("end", "finish"):
+                seen.add("END")
+                continue
+            if target in subgraph_names or target not in node_dict:
+                continue
+            reachable(target, seen)
+        return seen
+
     for i, (name, info) in enumerate(node_dict.items()):
         if not info.is_final and not info.transitions:
             if i + 1 >= len(node_names):
@@ -572,4 +609,19 @@ def validate_node_graph(node_dict: Dict[str, NodeInfo], subgraph_names: Optional
                 continue  # 目标是子图节点，合法
             if target not in node_dict:
                 errors.append(f"Node '{name}' has transition targeting non-existent node '{target}'.")
+
+        # fan-out 收敛检查：并行分支必须收敛到共同 join 节点，否则 join 永不触发（死等）
+        parallel_targets = [t.next.strip() for t in info.transitions if t.parallel]
+        if len(parallel_targets) > 1:
+            branch_reachable = [reachable(p) for p in parallel_targets]
+            common = set.intersection(*branch_reachable) if branch_reachable else set()
+            common.discard(name)  # 分支自身的起点不算 join
+            common.discard("END")
+            if not common:
+                joined = ", ".join(parallel_targets)
+                errors.append(
+                    f"Node '{name}' fans out to [{joined}] but the branches never converge to a "
+                    "common join node; the graph would deadlock (join never fires). "
+                    "Ensure all fan-out branches reach a shared target."
+                )
     return errors

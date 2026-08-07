@@ -9,6 +9,7 @@
         {
           "condition": null,
           "next": "Win",
+          "parallel": false,
           "feedback": null,
           "require_approval": false,
           "inherit_history": false,
