@@ -129,3 +129,88 @@ transition_to(None, "joined")
     # B 和 C 的 span 都保留（未被覆盖）
     assert sum(1 for s in r["spans"] if s["node"] == "B") == 1
     assert sum(1 for s in r["spans"] if s["node"] == "C") == 1
+
+
+def test_tool_call_metadata_and_span(tmp_path):
+    """工具调用：ToolMessage 打 metadata（node/tool/args）+ tool span（工具名/参数/结果/起止点）。"""
+    path = _write(
+        tmp_path,
+        """# [Config]
+- max_loops: 5
+
+# [Node] B
+- **type**: code
+
+```python
+transition_to(None, "b")
+```
+
+## [Transitions]
+- Default -> A
+
+# [Node] A
+- **is_final**: true
+- **type**: code
+
+```python
+transition_to(None, "a")
+```
+""",
+    )
+    app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
+    from langchain_core.messages import AIMessage
+
+    ai = AIMessage(
+        content="",
+        tool_calls=[{"name": "read_file", "args": {"filepath": "/etc/hostname"}, "id": "c1", "type": "tool_call"}],
+    )
+    r = _invoke(app, [HumanMessage(content="hi"), ai])
+    # ToolMessage 带归属 metadata
+    tool_msgs = [m for m in r["messages"] if type(m).__name__ == "ToolMessage"]
+    assert tool_msgs, "tool call 应产生 ToolMessage"
+    md = getattr(tool_msgs[0], "metadata", None) or {}
+    assert md.get("node") == "tools"
+    assert md.get("tool") == "read_file"
+    assert "filepath" in (md.get("args") or {})
+    # tool span 记录工具名/参数/结果/起止点
+    tool_spans = [s for s in r["spans"] if s.get("type") == "tool"]
+    assert tool_spans, "工具调用应有 tool span"
+    ts = tool_spans[0]
+    assert ts["tool"] == "read_file"
+    assert ts["args"].get("filepath") == "/etc/hostname"
+    assert ts["start"] < ts["end"]
+    assert isinstance(ts["result"], str)
+
+
+def test_code_node_reads_spans(tmp_path):
+    """代码节点入口可通过 spans 变量看到执行历史（入口 = 到本节点为止的历史，不含本次）。"""
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **type**: code
+
+```python
+deliverables["A_seen"] = str(len(spans))
+transition_to("B", "a")
+```
+
+## [Transitions]
+- Default -> B
+
+# [Node] B
+- **is_final**: true
+- **type**: code
+
+```python
+# B 入口看到 A 已执行完的 span
+deliverables["B_seen"] = "|".join(f"{s['node']}:{s['start']}-{s['end']}" for s in spans)
+transition_to(None, "b")
+```
+""",
+    )
+    app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
+    r = _invoke(app, [HumanMessage(content="hi")])
+    # A 是首个节点：入口时无历史
+    assert r["deliverables"]["A_seen"] == "0"
+    # B 入口看到 A 的 span
+    assert r["deliverables"]["B_seen"] == "A:1-1"

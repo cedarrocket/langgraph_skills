@@ -89,6 +89,7 @@ def execute_code(ctx: ExecutorContext) -> ExecutorResult:
     local_vars = {
         "deliverables": ctx.state["deliverables"],
         "messages": ctx.state["messages"],
+        "spans": ctx.state.get("spans", []),
         "get_payload": lambda: ctx.state["deliverables"].get("payload"),
         "transition_to": transition_to,
     }
@@ -123,6 +124,7 @@ def execute_script(ctx: ExecutorContext) -> ExecutorResult:
     local_vars = {
         "deliverables": ctx.state["deliverables"],
         "messages": ctx.state["messages"],
+        "spans": ctx.state.get("spans", []),
         "get_payload": lambda: ctx.state["deliverables"].get("payload"),
         "transition_to": transition_to,
     }

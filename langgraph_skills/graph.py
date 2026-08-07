@@ -13,6 +13,7 @@ import os
 import sys
 from typing import Any, Dict, List, Optional
 
+from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -105,7 +106,7 @@ def _compile_subgraph(
             workflow.add_node(name, create_node(info, tools, global_text, safe_input, run_skill, settings, triggers, subgraph_names))
 
     tools_node = ToolNode(tools.all())
-    workflow.add_node("tools", tools_node)
+    workflow.add_node("tools", _make_tool_node(tools_node))
 
     for name, info in sub_dict.items():
         if info.node_type == "subgraph" and info.subgraph:
@@ -141,6 +142,53 @@ def _compile_subgraph(
     start_node = list(sub_dict.keys())[0]
     workflow.set_entry_point(start_node)
     return workflow.compile()
+
+
+def _make_tool_node(tools_node: Any):
+    """包装 ToolNode：工具调用消息打 metadata + 记录 tool span。
+
+    - ToolMessage 打 metadata：node=tools / tool=<工具名> / args=<调用参数>
+    - 返回 spans：记录本次工具调用的 {tool, args, result, start, end}
+    分支入口的 python 脚本可按 metadata + spans 区分每一步（含工具调用）。
+    """
+
+    def wrapped_tool_node(state: AgentState) -> Dict[str, Any]:
+        msg_start_idx = len(state.get("messages", []))
+        # 找触发本次工具调用的 AIMessage（最后带 tool_calls 的那条）
+        trigger_ai = None
+        for m in reversed(state.get("messages", [])):
+            if isinstance(m, AIMessage) and m.tool_calls:
+                trigger_ai = m
+                break
+        calls_by_id = {c["id"]: c for c in (trigger_ai.tool_calls if trigger_ai else [])}
+
+        out = tools_node.invoke(state)
+
+        spans: List[Dict[str, Any]] = []
+        out_msgs = out.get("messages", [])
+        for i, m in enumerate(out_msgs):
+            meta = dict(getattr(m, "metadata", None) or {})
+            meta.setdefault("node", "tools")
+            meta.setdefault("tool", getattr(m, "name", None))
+            call = calls_by_id.get(getattr(m, "tool_call_id", None))
+            if call:
+                meta["args"] = call.get("args")
+            setattr(m, "metadata", meta)
+            call_args = call.get("args") if call else None
+            spans.append({
+                "node": "tools",
+                "loop": 0,
+                "type": "tool",
+                "tool": getattr(m, "name", None),
+                "args": call_args,
+                "result": m.content,
+                "start": msg_start_idx + i,
+                "end": msg_start_idx + i + 1,
+            })
+        out["spans"] = spans
+        return out
+
+    return wrapped_tool_node
 
 
 def build_graph(
@@ -225,7 +273,7 @@ def build_graph(
 
     # 集中注册当前图的所有 Tools (合并成一个大 ToolNode)
     tools_node = ToolNode(tools.all())
-    workflow.add_node("tools", tools_node)
+    workflow.add_node("tools", _make_tool_node(tools_node))
 
     # 构建边 (Edges)
     for name, info in node_dict.items():
