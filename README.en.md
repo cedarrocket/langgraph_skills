@@ -3,11 +3,11 @@
 
 # LangGraph Skills
 
-一个把 **prompt/LLM Graph 作为一等公民**的小型解释器——可以把它想成 **LLM Agent 界的 Perl**：一门"语言"是 Markdown、而"执行"是图的脚本解析器。你用 Markdown 把 Agent 描述成状态机，解释器把它编译成 LangGraph 图并运行。
+一个把 **prompt/LLM Graph 作为一等公民**的小型解释器——可以把它想成 **LLM Agent 的 logos/script/Perl**：一门"语言"是 Markdown、而"执行"是图的脚本解析器。你用 Markdown 把 Agent 描述成状态机，解释器把它编译成 LangGraph 图并运行。
 
-**核心目标**：在 DSL 语法尽量简单的同时，完成大部分 agent/harness 功能；把一切硬编码逻辑从解释器里赶出去，改成函数调用或外部嵌入（tools / `type: script` / `type: code`）。
+**核心目标**：在尝试让 DSL 语法尽量简单的同时，完成常见的 agent/harness 功能；并尝试把硬编码逻辑从 LLM DSL 里赶出去，改为函数调用或外部嵌入（tools calling / `type: script` / `type: code` / `pyfunction`）。
 
-项目最早源于 [_archive/agent_v2.py](_archive/agent_v2.py)：一段硬编码的 Python Agent（对话历史污染、mypy 自修复重试逻辑全写死在代码里）。本项目把这类逻辑搬进声明式 Markdown 脚本，例如 [assistant_compiled.md](assistant_compiled.md)。
+项目最早的念头起源于一个简单的、初学 agent 开发时的简易代码 [_archive/agent_v2.py](_archive/agent_v2.py)：一段硬编码的 Python Agent（对话历史污染、mypy 自修复重试逻辑全写死在代码里）。
 
 ---
 
@@ -16,7 +16,7 @@
 - 一门 Markdown DSL：区段（`# [Node]`、`## [Transitions]`…）是图的声明，自由文本就是 prompt
 - 单遍解析器（Markdown → IR）+ 运行时构建的 LangGraph 后端
 - 一个 CLI（`lgskills`），支持 shebang 直跑 Markdown 文件（`#!/usr/bin/env lgskills`）
-- 一个 toy/实验性质的可运行解释器——**不是生产级框架**
+- 一个 toy/实验性质的可运行解释器——但它是可用的解释器
 
 ## 它不是什么
 
@@ -263,5 +263,5 @@ done
 
 ## 声明
 
-- 这是一个 toy/实验性质的解释器——**不是**生产级 agent 框架。
+- 这是一个 toy/实验性质的解释器——仍在演进。
 - 本项目及本 README 目前由 opencode / DeepSeek V4 Flash 创建。

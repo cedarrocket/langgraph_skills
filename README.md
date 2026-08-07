@@ -3,11 +3,11 @@
 
 # LangGraph Skills
 
-A small interpreter that treats **prompt/LLM graphs as first-class citizens** — think of it as a **Perl for LLM agents**: a script parser whose "language" is Markdown, and whose "execution" is a graph. You describe the agent as a state machine in Markdown; the interpreter compiles it into a LangGraph graph and runs it.
+A small interpreter that treats **prompt/LLM graphs as first-class citizens** — think of it as a **logos/script/Perl for LLM agents**: a script parser whose "language" is Markdown, and whose "execution" is a graph. You describe the agent as a state machine in Markdown; the interpreter compiles it into a LangGraph graph and runs it.
 
-The core goal: **keep the DSL minimal while covering most agent/harness functionality**, pushing hard-coded logic out of the interpreter into function calls or externally embedded scripts (tools / `type: script` / `type: code`).
+The core goal: **attempt to keep the DSL syntax as simple as possible while covering common agent/harness functionality**; and attempt to drive hard-coded logic out of the LLM DSL, converting it into function calls or external embedding (tools calling / `type: script` / `type: code` / `pyfunction`).
 
-It originated from [_archive/agent_v2.py](_archive/agent_v2.py): a hard-coded Python agent (prompt-history pollution, mypy self-healing retry logic all baked in). This project moves such logic into declarative Markdown scripts, e.g. [assistant_compiled.md](assistant_compiled.md).
+It first came from a simple, beginner-level agent snippet [_archive/agent_v2.py](_archive/agent_v2.py): a hard-coded Python agent (prompt-history pollution, mypy self-healing retry logic all baked in).
 
 ---
 
@@ -16,7 +16,7 @@ It originated from [_archive/agent_v2.py](_archive/agent_v2.py): a hard-coded Py
 - A Markdown DSL where sections (`# [Node]`, `## [Transitions]`, …) are graph declarations, and free-form text is prompt
 - A single-pass parser (Markdown → IR) plus a LangGraph backend built at runtime
 - A CLI (`lgskills`) that can run Markdown files directly via shebang (`#!/usr/bin/env lgskills`)
-- A toy/experimental codebase, **not** a production framework — but it is a working interpreter
+- A toy/experimental codebase — but it is a working interpreter
 
 ## What it is not
 
@@ -263,5 +263,5 @@ After changing the DSL: edit `spec/dsl_spec.yaml` first, then regenerate (`pytho
 
 ## Notice
 
-- A toy/experimental interpreter — **not** a production agent framework.
+- A toy/experimental interpreter — still evolving.
 - This project and this README are currently created by opencode / DeepSeek V4 Flash.
