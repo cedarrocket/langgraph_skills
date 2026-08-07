@@ -1,7 +1,7 @@
 {
   "global_text": "You are a conversational assistant.",
   "max_loops": 10,
-  "states": {
+  "nodes": {
     "Refine": {
       "name": "Refine",
       "instructions": "协助用户将其日常任务通过讨论转化为详细需求。\n一次提问不要贪多，保持克制，层层递进。",
@@ -20,7 +20,7 @@
         }
       ],
       "is_final": false,
-      "state_type": "llm",
+      "node_type": "llm",
       "tools": [],
       "src": null,
       "interactive": true,
@@ -33,7 +33,7 @@
       "instructions": "Generate the final requirements document.",
       "transitions": [],
       "is_final": true,
-      "state_type": "llm",
+      "node_type": "llm",
       "tools": [],
       "src": null,
       "interactive": false,

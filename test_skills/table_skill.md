@@ -1,22 +1,22 @@
 You are a writer agent.
 
-# [State] Draft
+# [Node] Draft
 Write an article about AI.
 
 ## [Transitions]
 - Default -> Edit
 
-# [State] Edit
+# [Node] Edit
 Review the article.
 
 ## [Transitions]
-| Condition | Next State | Feedback |
+| Condition | Next Node | Feedback |
 | :--- | :--- | :--- |
 | Too short | Draft | The article is too short. Please expand. |
 | Grammatical errors | Draft | Fix grammatical errors. |
 | Acceptable | Publish | |
 
-# [State] Publish
+# [Node] Publish
 - **is_final**: true
 
 Publish the article.

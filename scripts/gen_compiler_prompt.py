@@ -24,12 +24,12 @@ COMPILER_PATH = ROOT / "langgraph_skills" / "compiler.py"
 # 人工措辞模板（教学/语气部分，不来自 spec）
 # ---------------------------------------------------------------------------
 HEADER = """You are a LangGraph Skill Compiler.
-Your task is to read a draft skill written by a human (which might have loose syntax, informal state declarations, or informal transition descriptions) and compile it into a standard Markdown AST state machine format."""
+Your task is to read a draft skill written by a human (which might have loose syntax, informal node declarations, or informal transition descriptions) and compile it into a standard Markdown AST state machine format."""
 
 RULES_INTRO = """Rules:
 """
 
-FOOTER = """Output ONLY the compiled Markdown containing the valid `# [State]` and `## [Transitions]` structures. Do not wrap the output in markdown code blocks unless the input draft itself was wrapped.
+FOOTER = """Output ONLY the compiled Markdown containing the valid `# [Node]` and `## [Transitions]` structures. Do not wrap the output in markdown code blocks unless the input draft itself was wrapped.
 If the input draft has a shebang line (e.g., #!...) or a # [Config] / # [IO] block, you MUST fully preserve them exactly as-is at the very top of the compiled output.
 
 Draft Skill:
@@ -40,44 +40,44 @@ Draft Skill:
 # ---------------------------------------------------------------------------
 # spec 驱动的规则生成
 # ---------------------------------------------------------------------------
-def render_state_rules(spec: Dict[str, Any]) -> str:
+def render_node_rules(spec: Dict[str, Any]) -> str:
     st = spec["sections"]["state"]
     meta = st["metadata"]
-    return f"""1. Every State must be declared as a top-level heading: `{st['heading']}`.
-   - If it is the final state, it must have `- **is_final**: true` or `- is_final: true` listed as a bullet point at the top of the state block.
-   - All other metadata attributes of the state MUST be preserved as list properties directly under the state heading. Supported metadata keys:
-     - **type**: {', '.join(f"`{v}`" for v in meta['type']['enum'])} (default `{meta['type']['default']}`)
-     - **tools**: comma-separated tool names (default empty)
-     - **src**: path (required when type is `script` or `skill`)
-     - **interactive**: `true`/`false` (default `false`)
-     - **history_window**: integer (optional)
-     - **max_loops**: integer (optional, defaults to global max_loops)"""
+    return f"""1. Every Node must be declared as a top-level heading: `{st['heading']}`.
+   - If it is the final node, it must have `- **is_final**: true` or `- is_final: true` listed as a bullet point at the top of the node block.
+   - All other metadata attributes of the node MUST be preserved as list properties directly under the node heading. Supported metadata keys:
+      - **type**: {', '.join(f"`{v}`" for v in meta['type']['enum'])} (default `{meta['type']['default']}`)
+      - **tools**: comma-separated tool names (default empty)
+      - **src**: path (required when type is `script` or `skill`)
+      - **interactive**: `true`/`false` (default `false`)
+      - **history_window**: integer (optional)
+      - **max_loops**: integer (optional, defaults to global max_loops)"""
 
 
 def render_transition_rules(spec: Dict[str, Any]) -> str:
     tr = spec["sections"]["state"]["sub_sections"]["transitions"]
     return f"""2. Transition logic must be compiled into a sub-section: `{tr['heading']}`.
    - For multiple conditional transitions (e.g., table or rules), use a Markdown table:
-     | Condition | Next State | Require Approval | Feedback |
+     | Condition | Next Node | Require Approval | Feedback |
      | :--- | :--- | :--- | :--- |
-     | expression_1 | State_A | yes | msg_A |
-     | expression_2 | State_B | no | msg_B |
+      | expression_1 | Node_A | yes | msg_A |
+      | expression_2 | Node_B | no | msg_B |
    - For a single unconditional transition, you can just use a list item:
-     - Default -> TargetState
+      - Default -> TargetNode
    - If the user wrote informal transition descriptions or shorthand (e.g., "go to Win", "跳转到 Finish"), translate them into standard list or table transitions.
-   - If the user did not write any transition logic for a non-final state, do not output any transitions; the interpreter will automatically fallback to sequential execution."""
+   - If the user did not write any transition logic for a non-final node, do not output any transitions; the interpreter will automatically fallback to sequential execution."""
 
 
 def render_section_rules(spec: Dict[str, Any]) -> str:
     s = spec["sections"]
-    return f"""3. Preserve the global instructions (text before the first top-level section) and each state's task instructions unchanged, except for formatting them into standard markdown blocks.
-4. Recognized top-level sections are: `{s['config']['heading']}` (engine params like `max_loops`), `{s['io']['heading']}` (reader/writer), `{s['tools']['heading']}` (tool declarations), and `{s['state']['heading']}` (state nodes). Preserve them exactly as-is.
+    return f"""3. Preserve the global instructions (text before the first top-level section) and each node's task instructions unchanged, except for formatting them into standard markdown blocks.
+4. Recognized top-level sections are: `{s['config']['heading']}` (engine params like `max_loops`), `{s['io']['heading']}` (reader/writer), `{s['tools']['heading']}` (tool declarations), and `{s['state']['heading']}` (nodes). Preserve them exactly as-is.
 5. Unknown sections are allowed (source is markdown-first) and must be preserved verbatim as natural language."""
 
 
 def build_prompt(spec: Dict[str, Any]) -> str:
     rules = "\n".join(
-        [RULES_INTRO, render_state_rules(spec), render_transition_rules(spec), render_section_rules(spec)]
+        [RULES_INTRO, render_node_rules(spec), render_transition_rules(spec), render_section_rules(spec)]
     )
     return f"{HEADER}\n\n{rules}\n\n{FOOTER}"
 

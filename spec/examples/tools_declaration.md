@@ -11,7 +11,7 @@
 
 You are a tool testing agent.
 
-# [State] TestTool
+# [Node] TestTool
 - **tools**: mock_tool, api_tool
 
 Your task is to call the registered tools and summarize the results.
@@ -19,7 +19,7 @@ Your task is to call the registered tools and summarize the results.
 ## [Transitions]
 - Default -> Finish
 
-# [State] Finish
+# [Node] Finish
 - **is_final**: true
 
 Display the final output.

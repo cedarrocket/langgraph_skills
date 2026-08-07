@@ -24,7 +24,7 @@ from langgraph_skills.models import (
     RESERVED_OUTPUT,
     CompiledSkill,
     InputOption,
-    StateInfo,
+    NodeInfo,
     ToolInfo,
     Transition,
 )
@@ -33,7 +33,7 @@ from langgraph_skills.models import (
 _SECTION_CONFIG = "config"
 _SECTION_IO = "io"
 _SECTION_TOOLS = "tools"
-_SECTION_STATE = "state"
+_SECTION_STATE = "node"
 
 _KNOWN_SECTIONS = {_SECTION_CONFIG, _SECTION_IO, _SECTION_TOOLS, _SECTION_STATE}
 
@@ -108,7 +108,7 @@ def parse_markdown_table_transitions(lines: list) -> List[Transition]:
             continue
 
         row_dict = dict(zip(header, parts))
-        next_state = row_dict.get("next state") or row_dict.get("next") or row_dict.get("next_state")
+        next_state = row_dict.get("next node") or row_dict.get("next state") or row_dict.get("next") or row_dict.get("next_state")
         if next_state:
             cond = row_dict.get("condition") or row_dict.get("cond")
             if cond and cond.lower() in ("default", "none", "", "any"):
@@ -203,8 +203,8 @@ def _parse_output_schema(body_text: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def parse_state_body(state_name: str, body_text: str) -> StateInfo:
-    """解析单个 `# [State]` 的状态体，返回 StateInfo。"""
+def parse_node_body(node_name: str, body_text: str) -> NodeInfo:
+    """解析单个 `# [Node]` 的状态体，返回 NodeInfo。"""
     lines = body_text.splitlines()
 
     metadata: Dict[str, Any] = {
@@ -288,12 +288,12 @@ def parse_state_body(state_name: str, body_text: str) -> StateInfo:
         elif sec_name in ("output json", "output schema", "output"):
             output_schema = _parse_output_schema("\n".join(current_sub_body))
 
-    return StateInfo(
-        name=state_name,
+    return NodeInfo(
+        name=node_name,
         instructions="\n".join(instructions_lines).strip(),
         transitions=transitions,
         is_final=metadata["is_final"],
-        state_type=metadata["type"],
+        node_type=metadata["type"],
         tools=metadata["tools"],
         src=metadata["src"],
         interactive=metadata["interactive"],
@@ -331,11 +331,11 @@ def _register_io_options(data: Dict[str, Any], input_options: List[InputOption])
         )
 
 
-def _apply_sequential_fallback(state_infos: List[StateInfo]) -> None:
+def _apply_sequential_fallback(node_infos: List[NodeInfo]) -> None:
     """非 final 且无 transitions 的状态，自动连接声明顺序的下一个状态。"""
-    for i, info in enumerate(state_infos):
-        if not info.transitions and not info.is_final and i + 1 < len(state_infos):
-            info.transitions.append(Transition(next=state_infos[i + 1].name))
+    for i, info in enumerate(node_infos):
+        if not info.transitions and not info.is_final and i + 1 < len(node_infos):
+            info.transitions.append(Transition(next=node_infos[i + 1].name))
 
 
 def parse_compiled_skill(filepath: str, strict: bool = False) -> CompiledSkill:
@@ -374,7 +374,7 @@ def parse_compiled_skill(filepath: str, strict: bool = False) -> CompiledSkill:
         sections.append((current_section, "\n".join(current_body)))
 
     compiled = CompiledSkill(global_text="\n".join(global_body).strip())
-    state_infos: List[StateInfo] = []
+    node_infos: List[NodeInfo] = []
 
     for (sec_type, sec_arg), body in sections:
         sec = sec_type.lower()
@@ -403,8 +403,8 @@ def parse_compiled_skill(filepath: str, strict: bool = False) -> CompiledSkill:
 
         elif sec == _SECTION_STATE:
             if not sec_arg:
-                raise ParseError(f"State section missing name: `# [{sec_type}]`")
-            state_infos.append(parse_state_body(sec_arg, body))
+                raise ParseError(f"Node section missing name: `# [{sec_type}]`")
+            node_infos.append(parse_node_body(sec_arg, body))
 
         else:
             if strict:
@@ -412,37 +412,37 @@ def parse_compiled_skill(filepath: str, strict: bool = False) -> CompiledSkill:
             compiled.warnings.append(f"Unknown section `# [{sec_type}]` (preserved as natural language)")
 
     # 重复状态名 -> error
-    names = [s.name for s in state_infos]
+    names = [s.name for s in node_infos]
     dupes = sorted({n for n in names if names.count(n) > 1})
     if dupes:
         raise ParseError(f"Duplicate state names: {dupes}")
 
     # 隐式顺序 fallback（结构化归一化）
-    _apply_sequential_fallback(state_infos)
-    for info in state_infos:
-        compiled.states[info.name] = info
+    _apply_sequential_fallback(node_infos)
+    for info in node_infos:
+        compiled.nodes[info.name] = info
 
     return compiled
 
 
-def validate_state_graph(state_dict: Dict[str, StateInfo]) -> List[str]:
-    """静态校验状态图（语义分析）。"""
+def validate_node_graph(node_dict: Dict[str, NodeInfo]) -> List[str]:
+    """静态校验节点图（语义分析）。"""
     errors: List[str] = []
-    state_names = list(state_dict.keys())
-    if not state_names:
+    node_names = list(node_dict.keys())
+    if not node_names:
         return errors
 
-    for i, (name, info) in enumerate(state_dict.items()):
+    for i, (name, info) in enumerate(node_dict.items()):
         if not info.is_final and not info.transitions:
-            if i + 1 >= len(state_names):
+            if i + 1 >= len(node_names):
                 errors.append(
-                    f"Non-final state '{name}' is the last state but is missing a "
+                    f"Non-final node '{name}' is the last node but is missing a "
                     "'## [Transitions]' definition or 'is_final: true'."
                 )
         for t in info.transitions:
             target = t.next.strip()
             if target.lower() in ("end", "finish"):
                 continue
-            if target not in state_dict:
-                errors.append(f"State '{name}' has transition targeting non-existent state '{target}'.")
+            if target not in node_dict:
+                errors.append(f"Node '{name}' has transition targeting non-existent node '{target}'.")
     return errors

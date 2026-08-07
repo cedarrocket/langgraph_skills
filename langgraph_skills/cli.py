@@ -4,7 +4,7 @@ import sys
 
 from langgraph_skills import compiler, runner
 from langgraph_skills.config import Settings
-from langgraph_skills.parser import parse_compiled_skill, validate_state_graph
+from langgraph_skills.parser import parse_compiled_skill, validate_node_graph
 
 
 def main() -> None:
@@ -41,8 +41,8 @@ def main() -> None:
         compiler.compile_skill(parsed.draft_path, parsed.output_path)
     elif parsed.command == "validate":
         try:
-            state_dict = parse_compiled_skill(parsed.skill_path, strict=settings.strict).states
-            errors = validate_state_graph(state_dict)
+            node_dict = parse_compiled_skill(parsed.skill_path, strict=settings.strict).nodes
+            errors = validate_node_graph(node_dict)
             if errors:
                 print("\n".join(errors), file=sys.stderr)
                 sys.exit(2)

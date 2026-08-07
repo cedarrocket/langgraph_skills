@@ -1,6 +1,6 @@
 You are a JSON generator helper.
 
-# [State] GenerateJSON
+# [Node] GenerateJSON
 Generate a JSON object representing a person's information.
 It must contain:
 1. `name` (string)
@@ -23,7 +23,7 @@ IMPORTANT: To test the self-healing of JSON validation, please intentionally out
 ## [Transitions]
 - Default -> Finish
 
-# [State] Finish
+# [Node] Finish
 - **is_final**: true
 
 Display the final valid JSON and stop.

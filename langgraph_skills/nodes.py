@@ -1,7 +1,7 @@
 """节点工厂与通用路由器。
 
 对应 PROCESS.md 设计基线的"节点工厂 + 路由"层：
-  - create_state_node：为每个状态生成 LangGraph 节点函数（loop 计数、JSON 自愈校验、审批门在节点级完成）
+  - create_node：为每个状态生成 LangGraph 节点函数（loop 计数、JSON 自愈校验、审批门在节点级完成）
   - generic_router / tool_router：ReAct 闭环与跨节点跳转路由
 
 依赖方向：nodes -> models / executors / tools；不依赖 graph / runner / parser。
@@ -18,15 +18,15 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.graph import END
 
 from langgraph_skills.executors import ExecutorContext, get_executor
-from langgraph_skills.models import AgentState, StateInfo
+from langgraph_skills.models import AgentState, NodeInfo
 from langgraph_skills.tools import ToolRegistry
 
 SafeInputFn = Callable[[str], str]
 RunSkillFn = Callable[..., Dict[str, Any]]
 
 
-def create_state_node(
-    state_info: StateInfo,
+def create_node(
+    node_info: NodeInfo,
     tools: ToolRegistry,
     global_instructions: str = "",
     safe_input: Optional[SafeInputFn] = None,
@@ -43,27 +43,27 @@ def create_state_node(
     def node_function(state: AgentState):
         current_loops = state.get("loop_count", 0) + 1
         current_max_loops = state.get("max_loops", 10)
-        new_max_loops = max(current_max_loops, 20) if state_info.interactive else current_max_loops
+        new_max_loops = max(current_max_loops, 20) if node_info.interactive else current_max_loops
 
         deliverables = state.get("deliverables", {})
         next_state = None
         output_messages: Optional[List[BaseMessage]] = None
 
-        print(f"\n--- [Node: {state_info.name}] Execution (Loop {current_loops}/{new_max_loops}) [Type: {state_info.state_type.capitalize()}] ---")
+        print(f"\n--- [Node: {node_info.name}] Execution (Loop {current_loops}/{new_max_loops}) [Type: {node_info.node_type.capitalize()}] ---")
 
-        executor = get_executor(state_info.state_type)
+        executor = get_executor(node_info.node_type)
         if executor is None:
             raise ValueError(
-                f"Unknown state type '{state_info.state_type}' for state '{state_info.name}'. No executor registered."
+                f"Unknown state type '{node_info.node_type}' for state '{node_info.name}'. No executor registered."
             )
 
         if safe_input is None or run_skill is None:
             raise RuntimeError(
-                f"Node '{state_info.name}': safe_input/run_skill must be injected by graph.build_graph / runner."
+                f"Node '{node_info.name}': safe_input/run_skill must be injected by graph.build_graph / runner."
             )
 
         ctx = ExecutorContext(
-            state_info=state_info,
+            node_info=node_info,
             state=state,
             tools=tools,
             safe_input=safe_input,
@@ -76,8 +76,8 @@ def create_state_node(
             deliverables["payload"] = result.payload
 
         # JSON Schema 校验与人工审批门 (通用逻辑)
-        if next_state and next_state != state_info.name and not state_info.is_final:
-            if state_info.output_schema and deliverables.get("payload"):
+        if next_state and next_state != node_info.name and not node_info.is_final:
+            if node_info.output_schema and deliverables.get("payload"):
                 raw_payload = deliverables["payload"].strip()
                 if raw_payload.startswith("```"):
                     match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw_payload, re.DOTALL)
@@ -87,28 +87,28 @@ def create_state_node(
                     payload_data = json.loads(raw_payload)
                     from jsonschema import ValidationError, validate  # type: ignore[import-untyped]
 
-                    validate(instance=payload_data, schema=state_info.output_schema)
+                    validate(instance=payload_data, schema=node_info.output_schema)
                     print("  [JSON Validation] Payload matches output schema.")
                     deliverables["payload"] = json.dumps(payload_data, ensure_ascii=False, indent=2)
                 except json.JSONDecodeError:
                     print("  [JSON Validation Failed] Payload is not valid JSON. Routing back for self-healing.")
-                    next_state = state_info.name
+                    next_state = node_info.name
                     deliverables["payload"] = (
                         f"JSON validation failed: Output must be a valid JSON string. Your previous output was:\n"
                         f"{deliverables['payload']}\nPlease format it correctly."
                     )
                 except ValidationError as ve:
                     print(f"  [JSON Validation Failed] Schema mismatch: {ve.message}. Routing back for self-healing.")
-                    next_state = state_info.name
+                    next_state = node_info.name
                     deliverables["payload"] = (
                         f"JSON validation failed against schema: {ve.message}.\n"
                         f"Your previous output was:\n{deliverables['payload']}\nPlease correct the structure."
                     )
 
-            if next_state and next_state != state_info.name:
-                matching_trans = next((t for t in state_info.transitions if t.next == next_state), None)
+            if next_state and next_state != node_info.name:
+                matching_trans = next((t for t in node_info.transitions if t.next == next_state), None)
                 if matching_trans and matching_trans.require_approval:
-                    print(f"\n[Approval Required] Transition from '{state_info.name}' to '{next_state}' requires approval.")
+                    print(f"\n[Approval Required] Transition from '{node_info.name}' to '{next_state}' requires approval.")
                     print("--- Payload Content ---")
                     print(deliverables.get("payload", ""))
                     print("-----------------------")
@@ -117,8 +117,8 @@ def create_state_node(
                         print("  [Approved] Proceeding to next state.")
                     else:
                         feedback_msg = user_app if (user_app.lower() != "n" and user_app) else "Rejected by user."
-                        print(f"  [Rejected] Routing back to '{state_info.name}' for revision. Feedback: {feedback_msg}")
-                        next_state = state_info.name
+                        print(f"  [Rejected] Routing back to '{node_info.name}' for revision. Feedback: {feedback_msg}")
+                        next_state = node_info.name
                         deliverables["payload"] = (
                             f"Your transition to '{matching_trans.next}' was rejected by the user with feedback:\n"
                             f"{feedback_msg}\nPlease revise the output."
@@ -129,7 +129,7 @@ def create_state_node(
             "deliverables": deliverables,
             "loop_count": current_loops,
             "max_loops": new_max_loops,
-            "current_node": state_info.name,
+            "current_node": node_info.name,
         }
         if output_messages is not None:
             ret["messages"] = output_messages

@@ -67,7 +67,7 @@
 
 
 
-### 2.4 状态节点 (# [State] StateName)
+### 2.4 状态节点 (# [Node] NodeName)
 
 一个状态节点。元数据键：
 
@@ -121,7 +121,7 @@
 
 ```markdown
 ## [Transitions]
-| Condition | Next State | Require Approval | Feedback |
+| Condition | Next Node | Require Approval | Feedback |
 | :--- | :--- | :--- | :--- |
 | Too short | Draft | no | Please expand. |
 | Acceptable | Publish | yes | |
@@ -129,7 +129,7 @@
 
 * `Condition`：触发跳转的判断条件（仅作为对 LLM 的提示，不程序化求值）。
 
-* `Next State`：目标状态名。
+* `Next Node`：目标状态名。
 
 * `Require Approval`：`yes`/`true` 开启人工审批门。
 
@@ -144,7 +144,7 @@
 ## 4. 语义规则
 
 * **未知 section**：warning（可通过配置关闭）——源首先是 markdown，允许自然语言混入
-* **重复状态名**：error——结构性冲突，破坏图语义
+* **重复节点名**：error——结构性冲突，破坏图语义
 * **条件跳转**：条件仅作为对 LLM 的提示，由 LLM 决定 next_state（不程序化求值）
 * **循环预算**：来自 # [Config] max_loops（默认 10）；节点可覆盖（来自状态元数据 max_loops；null 时继承全局）；超限后 全局或节点任一超限 -> 强制 END 并警告。归一化在 在语义分析阶段统一归一化为整数，不留运行时。
 * **`llm` 状态**：LLM 节点：构造 prompt、绑定工具、可交互
@@ -163,7 +163,7 @@
 * **`messages`**：对话历史列表。
 
 ```markdown
-# [State] Check
+# [Node] Check
 - **type**: code
 
 ```python

@@ -1,4 +1,4 @@
-# [State] Draft
+# [Node] Draft
 - **type**: llm
 
 Write or update the article draft based on the user's topic and any feedback received from the Edit phase.
@@ -6,7 +6,7 @@ Write or update the article draft based on the user's topic and any feedback rec
 ## [Transitions]
 - Default -> Edit
 
-# [State] Edit
+# [Node] Edit
 - **type**: llm
 
 Evaluate the current draft. 
@@ -16,12 +16,12 @@ If this is the second iteration (and it mentions the Artemis mission), approve i
 Valid next states are: Draft, Publish.
 
 ## [Transitions]
-| Condition | Next State | Require Approval | Feedback |
+| Condition | Next Node | Require Approval | Feedback |
 | :--- | :--- | :--- | :--- |
 | need_revision | Draft | no | it needs to mention the NASA Artemis mission |
 | approved | Publish | no | |
 
-# [State] Publish
+# [Node] Publish
 - **is_final**: true
 - **type**: llm
 

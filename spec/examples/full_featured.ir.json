@@ -1,7 +1,7 @@
 {
   "global_text": "You are a tech research assistant. Your task is to search the web for a given tech topic, compile findings, and output a formatted Markdown report.",
   "max_loops": 40,
-  "states": {
+  "nodes": {
     "SearchInfo": {
       "name": "SearchInfo",
       "instructions": "Search the web for the tech topic provided in the payload.",
@@ -14,7 +14,7 @@
         }
       ],
       "is_final": false,
-      "state_type": "llm",
+      "node_type": "llm",
       "tools": [
         "web_search"
       ],
@@ -42,7 +42,7 @@
         }
       ],
       "is_final": false,
-      "state_type": "llm",
+      "node_type": "llm",
       "tools": [],
       "src": null,
       "interactive": false,
@@ -72,7 +72,7 @@
       "instructions": "Display the final report.",
       "transitions": [],
       "is_final": true,
-      "state_type": "llm",
+      "node_type": "llm",
       "tools": [],
       "src": null,
       "interactive": false,

@@ -4,7 +4,7 @@
 
 You are an expert Python developer and strict code reviewer. Your goal is to review and fix type annotations for Python code to make it fully compliant with mypy strict mode.
 
-# [State] ReviewCode
+# [Node] ReviewCode
 - **type**: llm
 
 Analyze the Python code provided in the payload. 
@@ -19,7 +19,7 @@ You MUST output the complete updated python code wrapped in a single ```python .
 ## [Transitions]
 - Default -> RunMypy
 
-# [State] RunMypy
+# [Node] RunMypy
 - **type**: code
 
 ```python
@@ -82,13 +82,13 @@ finally:
 ```
 
 ## [Transitions]
-| Condition | Next State | Require Approval | Feedback |
+| Condition | Next Node | Require Approval | Feedback |
 | :--- | :--- | :--- | :--- |
 | Mypy check passed | AskApproval | no | |
 | Mypy check failed and attempts < 3 | FixMypy | no | |
 | Mypy check failed and attempts >= 3 | AskApproval | no | |
 
-# [State] FixMypy
+# [Node] FixMypy
 - **type**: llm
 
 Mypy static type checking failed for your candidate code.
@@ -106,7 +106,7 @@ Output the complete corrected Python code inside a single ```python ... ``` code
 ## [Transitions]
 - Default -> RunMypy
 
-# [State] AskApproval
+# [Node] AskApproval
 - **type**: llm
 
 The review and mypy type checks of the code are now complete.
@@ -121,12 +121,12 @@ Please review the changes above. If you approve of writing these changes back to
 - If you have feedback, write it down to ask for further modifications.
 
 ## [Transitions]
-| Condition | Next State | Require Approval | Feedback |
+| Condition | Next Node | Require Approval | Feedback |
 | :--- | :--- | :--- | :--- |
 | User approves | WriteBack | yes | Approving and writing to file. |
 | User rejects or requests change | ReviewCode | no | User requested changes. |
 
-# [State] WriteBack
+# [Node] WriteBack
 - **type**: code
 
 ```python
@@ -148,7 +148,7 @@ else:
 ## [Transitions]
 - Default -> Finish
 
-# [State] Finish
+# [Node] Finish
 - **is_final**: true
 
 The review task is complete! The final code has been saved back to the file.

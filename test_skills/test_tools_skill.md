@@ -6,7 +6,7 @@
 
 You are a tool testing agent.
 
-# [State] TestTool
+# [Node] TestTool
 - **tools**: mock_tool
 
 Your task is to:
@@ -16,7 +16,7 @@ Your task is to:
 ## [Transitions]
 - Default -> Finish
 
-# [State] Finish
+# [Node] Finish
 - **is_final**: true
 
 Display the final output and stop.

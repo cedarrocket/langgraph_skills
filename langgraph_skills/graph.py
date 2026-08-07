@@ -17,8 +17,8 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from langgraph_skills.models import AgentState
-from langgraph_skills.nodes import RunSkillFn, SafeInputFn, create_state_node, generic_router, tool_router
-from langgraph_skills.parser import parse_compiled_skill, validate_state_graph
+from langgraph_skills.nodes import RunSkillFn, SafeInputFn, create_node, generic_router, tool_router
+from langgraph_skills.parser import parse_compiled_skill, validate_node_graph
 from langgraph_skills.tools import ToolRegistry, build_tool
 
 
@@ -45,9 +45,9 @@ def build_graph(
     safe_input / run_skill 透传给节点工厂（由 runner 注入，用于交互/嵌套 skill）。
     """
     compiled = parse_compiled_skill(skill_path)
-    state_dict = compiled.states
+    node_dict = compiled.nodes
 
-    validation_errors = validate_state_graph(state_dict)
+    validation_errors = validate_node_graph(node_dict)
     if validation_errors:
         err_msg = "\n".join(validation_errors)
         raise ValueError(err_msg)
@@ -97,15 +97,15 @@ def build_graph(
     workflow = StateGraph(AgentState)
 
     # 添加所有节点
-    for name, info in state_dict.items():
-        workflow.add_node(name, create_state_node(info, tools, compiled.global_text, safe_input, run_skill))
+    for name, info in node_dict.items():
+        workflow.add_node(name, create_node(info, tools, compiled.global_text, safe_input, run_skill))
 
     # 集中注册当前图的所有 Tools (合并成一个大 ToolNode)
     tools_node = ToolNode(tools.all())
     workflow.add_node("tools", tools_node)
 
     # 构建边 (Edges)
-    for name, info in state_dict.items():
+    for name, info in node_dict.items():
         if info.is_final:
             workflow.add_edge(name, END)
         else:
@@ -114,7 +114,7 @@ def build_graph(
                 generic_router,
                 path_map={
                     "tools": "tools",
-                    **{s: s for s in state_dict.keys()},
+                    **{s: s for s in node_dict.keys()},
                     END: END,
                 },
             )
@@ -123,10 +123,10 @@ def build_graph(
     workflow.add_conditional_edges(
         "tools",
         tool_router,
-        path_map={s: s for s in state_dict.keys()},
+        path_map={s: s for s in node_dict.keys()},
     )
 
-    start_node = list(state_dict.keys())[0]
+    start_node = list(node_dict.keys())[0]
     workflow.set_entry_point(start_node)
 
     return workflow.compile()

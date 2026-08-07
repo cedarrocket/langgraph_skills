@@ -1,7 +1,7 @@
 """节点执行器（可插拔）。
 
 对应 PROCESS.md 设计基线的"执行器"层：
-  - 每个 state_type（llm / code / script / skill）对应一个执行器
+  - 每个 node_type（llm / code / script / skill）对应一个执行器
   - EXECUTOR_REGISTRY：类型 -> 执行器工厂；通过 register_executor 可扩展新状态类型
   - 沙箱/环境扩展点：ExecutorContext 携带 config，将来可注入沙箱、权限等
 
@@ -26,7 +26,7 @@ from langgraph_skills.config import (
     Settings,
     get_deepseek_key,
 )
-from langgraph_skills.models import STATE_CODE, STATE_LLM, STATE_SCRIPT, STATE_SKILL, AgentState, StateInfo
+from langgraph_skills.models import NODE_CODE, NODE_LLM, NODE_SCRIPT, NODE_SKILL, AgentState, NodeInfo
 from langgraph_skills.tools import ToolRegistry
 
 # ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ from langgraph_skills.tools import ToolRegistry
 class ExecutorContext:
     """执行器需要的全部外部依赖，集中注入以便测试与未来沙箱化。"""
 
-    state_info: StateInfo
+    node_info: NodeInfo
     state: AgentState
     tools: ToolRegistry  # 当前图的工具注册表
     safe_input: Callable[[str], str]
@@ -76,7 +76,7 @@ def _strip_code_fence(code_str: str) -> str:
 
 def execute_code(ctx: ExecutorContext) -> ExecutorResult:
     """type=code：执行状态体内的内联 Python。"""
-    info = ctx.state_info
+    info = ctx.node_info
     code_str = _strip_code_fence(info.instructions)
 
     local_outputs: Dict[str, Optional[str]] = {"next_state": None, "payload": None}
@@ -103,7 +103,7 @@ def execute_code(ctx: ExecutorContext) -> ExecutorResult:
 
 def execute_script(ctx: ExecutorContext) -> ExecutorResult:
     """type=script：执行 src 指向的外部 Python 文件。"""
-    info = ctx.state_info
+    info = ctx.node_info
     script_path = info.src
     if not script_path:
         raise ValueError(f"Script state '{info.name}' is missing the 'src' attribute.")
@@ -137,7 +137,7 @@ def execute_script(ctx: ExecutorContext) -> ExecutorResult:
 
 def execute_skill(ctx: ExecutorContext) -> ExecutorResult:
     """type=skill：运行嵌套子 skill，payload 作为输入。"""
-    info = ctx.state_info
+    info = ctx.node_info
     child_skill_path = info.src
     if not child_skill_path:
         raise ValueError(f"Skill state '{info.name}' is missing the 'src' attribute.")
@@ -157,7 +157,7 @@ def execute_skill(ctx: ExecutorContext) -> ExecutorResult:
 
 def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
     """type=llm：构造 prompt、绑定工具、调用 LLM、处理 SubmitResult / 交互。"""
-    info = ctx.state_info
+    info = ctx.node_info
     state = ctx.state
     deliverables = state.get("deliverables", {})
 
@@ -227,21 +227,21 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
     # 历史窗口
     if "start_msg_index" not in state["deliverables"]:
         state["deliverables"]["start_msg_index"] = 0
-        current_state_messages = state["messages"]
+        current_node_messages = state["messages"]
     elif info.name != state["current_node"]:
         state["deliverables"]["start_msg_index"] = len(state["messages"])
-        current_state_messages = []
+        current_node_messages = []
     else:
         start_idx = state["deliverables"]["start_msg_index"]
-        current_state_messages = state["messages"][start_idx:]
+        current_node_messages = state["messages"][start_idx:]
 
     if info.history_window is not None:
-        human_indices = [i for i, m in enumerate(current_state_messages) if isinstance(m, HumanMessage)]
+        human_indices = [i for i, m in enumerate(current_node_messages) if isinstance(m, HumanMessage)]
         if len(human_indices) > info.history_window:
             slice_idx = human_indices[-info.history_window]
-            current_state_messages = current_state_messages[slice_idx:]
+            current_node_messages = current_node_messages[slice_idx:]
 
-    messages = [HumanMessage(content=sys_prompt)] + current_state_messages
+    messages = [HumanMessage(content=sys_prompt)] + current_node_messages
     response = llm_with_tools.invoke(messages)
 
     out_msgs: List[BaseMessage] = [response]
@@ -292,17 +292,17 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
 ExecutorFn = Callable[[ExecutorContext], ExecutorResult]
 
 EXECUTOR_REGISTRY: Dict[str, ExecutorFn] = {
-    STATE_LLM: execute_llm,
-    STATE_CODE: execute_code,
-    STATE_SCRIPT: execute_script,
-    STATE_SKILL: execute_skill,
+    NODE_LLM: execute_llm,
+    NODE_CODE: execute_code,
+    NODE_SCRIPT: execute_script,
+    NODE_SKILL: execute_skill,
 }
 
 
-def register_executor(state_type: str, fn: ExecutorFn) -> None:
+def register_executor(node_type: str, fn: ExecutorFn) -> None:
     """注册新的状态类型执行器（扩展点）。"""
-    EXECUTOR_REGISTRY[state_type] = fn
+    EXECUTOR_REGISTRY[node_type] = fn
 
 
-def get_executor(state_type: str) -> Optional[ExecutorFn]:
-    return EXECUTOR_REGISTRY.get(state_type)
+def get_executor(node_type: str) -> Optional[ExecutorFn]:
+    return EXECUTOR_REGISTRY.get(node_type)

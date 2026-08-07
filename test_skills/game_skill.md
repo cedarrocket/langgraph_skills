@@ -3,7 +3,7 @@
 
 You are a number guessing agent. The target number is 42.
 
-# [State] Guess
+# [Node] Guess
 Make a new numeric guess based on the feedback from the previous Check phase. 
 Initially (if there is no feedback), guess 50.
 Do not guess 42 on the first try so we can test the loop.
@@ -13,7 +13,7 @@ If the feedback says "Too low", you must guess a HIGHER number.
 ## [Transitions]
 - Default -> Check
 
-# [State] Check
+# [Node] Check
 - **type**: code
 
 ```python
@@ -32,7 +32,7 @@ else:
     transition_to('Guess', 'Too low')
 ```
 
-# [State] Win
+# [Node] Win
 - **is_final**: true
 
 State that the target number 42 has been guessed successfully!

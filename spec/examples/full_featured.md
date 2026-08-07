@@ -9,7 +9,7 @@ You are a tech research assistant. Your task is to search the web for a given te
 - **reader**: txt_reader
 - **writer**: txt_writer
 
-# [State] SearchInfo
+# [Node] SearchInfo
 - **type**: llm
 - **tools**: web_search
 
@@ -18,7 +18,7 @@ Search the web for the tech topic provided in the payload.
 ## [Transitions]
 - Default -> CompileReport
 
-# [State] CompileReport
+# [Node] CompileReport
 - **type**: llm
 - **max_loops**: 8
 
@@ -37,12 +37,12 @@ Compile findings into a validated JSON structure.
 ```
 
 ## [Transitions]
-| Condition | Next State | Require Approval | Feedback |
+| Condition | Next Node | Require Approval | Feedback |
 | :--- | :--- | :--- | :--- |
 | topic unclear | SearchInfo | no | Clarify the topic. |
 | findings complete | FormatReport | yes | |
 
-# [State] FormatReport
+# [Node] FormatReport
 - **is_final**: true
 
 Display the final report.

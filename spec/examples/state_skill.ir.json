@@ -1,7 +1,7 @@
 {
   "global_text": "You are a master parent agent.",
   "max_loops": 10,
-  "states": {
+  "nodes": {
     "PreProcess": {
       "name": "PreProcess",
       "instructions": "Tell the system to generate a person's information for a user named Alice who is 30 years old.",
@@ -14,7 +14,7 @@
         }
       ],
       "is_final": false,
-      "state_type": "llm",
+      "node_type": "llm",
       "tools": [],
       "src": null,
       "interactive": false,
@@ -34,7 +34,7 @@
         }
       ],
       "is_final": false,
-      "state_type": "skill",
+      "node_type": "skill",
       "tools": [],
       "src": "test_skills/test_json_skill.md",
       "interactive": false,
@@ -47,7 +47,7 @@
       "instructions": "Display the final JSON payload returned from the child skill.",
       "transitions": [],
       "is_final": true,
-      "state_type": "llm",
+      "node_type": "llm",
       "tools": [],
       "src": null,
       "interactive": false,

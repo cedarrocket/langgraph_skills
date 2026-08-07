@@ -1,4 +1,4 @@
-# [State] Check
+# [Node] Check
 - **type**: code
 
 ```python
@@ -17,5 +17,5 @@ else:
 ## [Transitions]
 - Default -> Win
 
-# [State] Win
+# [Node] Win
 - **is_final**: true

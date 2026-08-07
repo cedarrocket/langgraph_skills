@@ -20,7 +20,7 @@ from langgraph.graph import END
 from langgraph_skills.config import get_deepseek_key
 from langgraph_skills.graph import build_graph, print_help
 from langgraph_skills.models import AgentState
-from langgraph_skills.parser import parse_compiled_skill, validate_state_graph
+from langgraph_skills.parser import parse_compiled_skill, validate_node_graph
 from langgraph_skills.tools import ToolRegistry, build_tool
 
 
@@ -47,9 +47,9 @@ def run_skill(
 ) -> Dict[str, Any]:
     print(f"1. Parsing and compiling skill graph: {skill_path}...", file=sys.stderr)
     compiled = parse_compiled_skill(skill_path)
-    state_dict = compiled.states
+    node_dict = compiled.nodes
 
-    validation_errors = validate_state_graph(state_dict)
+    validation_errors = validate_node_graph(node_dict)
     if validation_errors:
         err_msg = "\n".join(validation_errors)
         print(f"Validation Error: {err_msg}", file=sys.stderr)
@@ -84,11 +84,11 @@ def run_skill(
     # 动态构建并注册工具及运行 Option 中的 reader 属性
     app = build_graph(skill_path, initial_deliverables, safe_input=safe_input, run_skill=run_skill)
 
-    start_node = list(state_dict.keys())[0]
+    start_node = list(node_dict.keys())[0]
     initial_state: AgentState = {
         "messages": [HumanMessage(content=user_input)],
         "global_instructions": compiled.global_text,
-        "state_instructions": state_dict[start_node].instructions,
+        "state_instructions": node_dict[start_node].instructions,
         "deliverables": initial_deliverables if initial_deliverables is not None else {},
         "next_state": "",
         "current_node": start_node,

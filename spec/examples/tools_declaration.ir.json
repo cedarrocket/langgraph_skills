@@ -1,7 +1,7 @@
 {
   "global_text": "",
   "max_loops": 10,
-  "states": {
+  "nodes": {
     "TestTool": {
       "name": "TestTool",
       "instructions": "Your task is to call the registered tools and summarize the results.",
@@ -14,7 +14,7 @@
         }
       ],
       "is_final": false,
-      "state_type": "llm",
+      "node_type": "llm",
       "tools": [
         "mock_tool",
         "api_tool"
@@ -30,7 +30,7 @@
       "instructions": "Display the final output.",
       "transitions": [],
       "is_final": true,
-      "state_type": "llm",
+      "node_type": "llm",
       "tools": [],
       "src": null,
       "interactive": false,

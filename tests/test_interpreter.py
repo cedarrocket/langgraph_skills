@@ -4,11 +4,11 @@ import tempfile
 from langgraph.graph.state import CompiledStateGraph
 
 from langgraph_skills.graph import build_graph
-from langgraph_skills.models import StateInfo, Transition
-from langgraph_skills.parser import parse_compiled_skill, parse_state_body, validate_state_graph
+from langgraph_skills.models import NodeInfo, Transition
+from langgraph_skills.parser import parse_compiled_skill, parse_node_body, validate_node_graph
 
 
-def test_parse_state_body():
+def test_parse_node_body():
     body_text = """- **type**: llm
 - **tools**: web_search, read_file
 - **history_window**: 5
@@ -29,15 +29,15 @@ Please read the file and search the query.
 ```
 
 ## [Transitions]
-| Condition | Next State | Require Approval | Feedback |
+| Condition | Next Node | Require Approval | Feedback |
 | :--- | :--- | :--- | :--- |
 | Success | Finish | yes | Done! |
 | Fail | Retry | no | Fix it |
 """
-    result = parse_state_body("TestState", body_text)
+    result = parse_node_body("TestNode", body_text)
 
-    assert result.name == "TestState"
-    assert result.state_type == "llm"
+    assert result.name == "TestNode"
+    assert result.node_type == "llm"
     assert result.tools == ["web_search", "read_file"]
     assert result.history_window == 5
     assert result.interactive is True
@@ -55,27 +55,27 @@ Please read the file and search the query.
     assert t1.feedback == "Done!"
 
 
-def test_validate_state_graph():
+def test_validate_node_graph():
     # Valid graph
-    valid_states = {
-        "Start": StateInfo("Start", "task", [Transition(next="Finish")], is_final=False),
-        "Finish": StateInfo("Finish", "task", [], is_final=True),
+    valid_nodes = {
+        "Start": NodeInfo("Start", "task", [Transition(next="Finish")], is_final=False),
+        "Finish": NodeInfo("Finish", "task", [], is_final=True),
     }
-    assert len(validate_state_graph(valid_states)) == 0
+    assert len(validate_node_graph(valid_nodes)) == 0
 
     # Dangling transition
-    invalid_states = {
-        "Start": StateInfo("Start", "task", [Transition(next="NonExistent")], is_final=False)
+    invalid_nodes = {
+        "Start": NodeInfo("Start", "task", [Transition(next="NonExistent")], is_final=False)
     }
-    errors = validate_state_graph(invalid_states)
+    errors = validate_node_graph(invalid_nodes)
     assert len(errors) == 1
-    assert "targeting non-existent state" in errors[0]
+    assert "targeting non-existent node" in errors[0]
 
     # Non-final state without transitions at the end
-    invalid_states2 = {
-        "Start": StateInfo("Start", "task", [], is_final=False)
+    invalid_nodes2 = {
+        "Start": NodeInfo("Start", "task", [], is_final=False)
     }
-    errors2 = validate_state_graph(invalid_states2)
+    errors2 = validate_node_graph(invalid_nodes2)
     assert len(errors2) == 1
     assert "missing a '## [Transitions]' definition" in errors2[0]
 
@@ -87,7 +87,7 @@ def test_parse_compiled_skill():
 - **max_loops**: 15
 - **reader**: txt_reader
 
-# [State] Start
+# [Node] Start
 - **type**: code
 
 ```python
@@ -97,7 +97,7 @@ transition_to("Finish", "ok")
 ## [Transitions]
 - Default -> Finish
 
-# [State] Finish
+# [Node] Finish
 - **is_final**: true
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as tmp:
@@ -109,10 +109,10 @@ transition_to("Finish", "ok")
 
         assert compiled.global_text == "This is a global prompt."
         assert compiled.max_loops == 15
-        assert "Start" in compiled.states
-        assert "Finish" in compiled.states
-        assert compiled.states["Start"].state_type == "code"
-        assert compiled.states["Finish"].is_final is True
+        assert "Start" in compiled.nodes
+        assert "Finish" in compiled.nodes
+        assert compiled.nodes["Start"].node_type == "code"
+        assert compiled.nodes["Finish"].is_final is True
 
         # Verify reader option was added (from Config, backward compat)
         has_reader_option = any(o.reader == "txt_reader" for o in compiled.input_options)
@@ -128,7 +128,7 @@ def test_build_graph():
 # [Config]
 - **max_loops**: 5
 
-# [State] Start
+# [Node] Start
 - **type**: code
 
 ```python
@@ -138,7 +138,7 @@ transition_to("Finish", "ok")
 ## [Transitions]
 - Default -> Finish
 
-# [State] Finish
+# [Node] Finish
 - **is_final**: true
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as tmp:

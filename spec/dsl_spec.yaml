@@ -100,7 +100,7 @@ sections:
 
   # 状态节点声明
   state:
-    heading: "# [State] StateName"
+    heading: "# [Node] NodeName"
     description: "一个状态节点"
     metadata: # 状态体顶部的 `- **key**: value` 元数据
       type:
@@ -137,7 +137,7 @@ sections:
         description: "状态跳转规则；非 final 状态必须定义，否则触发隐式顺序 fallback"
         forms:
           table:
-            columns: [Condition, Next State, Require Approval, Feedback]
+            columns: [Condition, Next Node, Require Approval, Feedback]
             description: "多条件/带审批的跳转用表格"
             optional_columns: [Condition, Require Approval, Feedback]
           list:
@@ -158,7 +158,7 @@ semantics:
     policy: warning
     closable: true
     reason: "源首先是 markdown，允许自然语言混入"
-  duplicate_state_name:
+  duplicate_node_name:
     policy: error
     reason: "结构性冲突，破坏图语义"
   non_final_without_transitions:
@@ -184,8 +184,8 @@ semantics:
     enforcement: "全局或节点任一超限 -> 强制 END 并警告"
     normalization: "在语义分析阶段统一归一化为整数，不留运行时"
 
-  # 状态类型 -> 执行器映射
-  state_executor_map:
+  # 节点类型 -> 执行器映射
+  node_executor_map:
     llm: "LLM 节点：构造 prompt、绑定工具、可交互"
     code: "Python 代码节点：exec 状态体中的代码"
     script: "脚本节点：exec src 指向的文件"

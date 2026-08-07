@@ -6,19 +6,19 @@
 
 You are a LangGraph Skill Compiler.
 
-# [State] CompileDraft
+# [Node] CompileDraft
 You are a LangGraph Skill Compiler.
 Your task is to read the draft skill provided in the payload and compile it into a standard Markdown AST state machine format.
 
 Rules:
-1. Every State must be declared as a top-level heading: `# [State] StateName`.
+1. Every State must be declared as a top-level heading: `# [Node] StateName`.
    - If it is the final state, it must have `- **is_final**: true` or `- is_final: true` listed as a bullet point at the top of the state block.
-   - All other metadata attributes of the state (such as `type`, `src`, `interactive`, and `tools`) MUST be preserved as list properties directly under the `# [State] StateName` heading, like this:
+   - All other metadata attributes of the state (such as `type`, `src`, `interactive`, and `tools`) MUST be preserved as list properties directly under the `# [Node] StateName` heading, like this:
      - **type**: llm
      - **tools**: web_search
 2. Transition logic must be compiled into a sub-section: `## [Transitions]`.
    - For multiple conditional transitions (e.g., table or rules), use a Markdown table:
-     | Condition | Next State | Require Approval | Feedback |
+     | Condition | Next Node | Require Approval | Feedback |
      | :--- | :--- | :--- | :--- |
      | expression_1 | State_A | yes | msg_A |
      | expression_2 | State_B | no | msg_B |
@@ -27,7 +27,7 @@ Rules:
    - If the user wrote informal transition descriptions or shorthand (e.g., "go to Win", "跳转到 Finish"), translate them into standard list or table transitions.
    - If the user did not write any transition logic for a non-final state, do not output any transitions; the interpreter will automatically fallback to sequential execution.
 3. Keep the original global instructions (text outside states) and state task instructions (text inside states) unchanged, except for formatting them into standard markdown blocks.
-4. Output ONLY the compiled Markdown containing the valid `# [State]` and `## [Transitions]` structures. Do not wrap the output in markdown code blocks unless the input draft itself was wrapped.
+4. Output ONLY the compiled Markdown containing the valid `# [Node]` and `## [Transitions]` structures. Do not wrap the output in markdown code blocks unless the input draft itself was wrapped.
 5. If the input draft has a shebang line (e.g., #!...) or a # [Config] block, you MUST fully preserve them exactly as-is at the very top of the compiled output.
 
 Please compile the draft content provided below:
@@ -35,7 +35,7 @@ Please compile the draft content provided below:
 ## [Transitions]
 - Default -> ValidateSyntax
 
-# [State] ValidateSyntax
+# [Node] ValidateSyntax
 - **type**: code
 
 ```python
@@ -84,12 +84,12 @@ finally:
 ```
 
 ## [Transitions]
-| Condition | Next State | Require Approval | Feedback |
+| Condition | Next Node | Require Approval | Feedback |
 | :--- | :--- | :--- | :--- |
 | validation fails | FixCompilation | no | |
 | validation passes | Finish | yes | |
 
-# [State] FixCompilation
+# [Node] FixCompilation
 Your previous compilation attempt failed validation.
 Please correct the compiled state machine code according to the validation error.
 
@@ -102,7 +102,7 @@ Instructions:
 ## [Transitions]
 - Default -> ValidateSyntax
 
-# [State] Finish
+# [Node] Finish
 - **type**: code
 - **is_final**: true
 

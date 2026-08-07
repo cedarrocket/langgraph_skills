@@ -7,20 +7,20 @@ from langgraph_skills.executors import (
     get_executor,
     register_executor,
 )
-from langgraph_skills.models import AgentState, StateInfo
+from langgraph_skills.models import AgentState, NodeInfo
 from langgraph_skills.tools import ToolRegistry
 
 
-def _ctx(state_info: StateInfo, state: AgentState | None = None, run_skill=None):
+def _ctx(node_info: NodeInfo, state: AgentState | None = None, run_skill=None):
     return ExecutorContext(
-        state_info=state_info,
+        node_info=node_info,
         state=state
         or AgentState(
             messages=[],
             global_instructions="",
             state_instructions="",
             deliverables={},
-            current_node=state_info.name,
+            current_node=node_info.name,
             next_state="",
             loop_count=0,
             max_loops=10,
@@ -32,9 +32,9 @@ def _ctx(state_info: StateInfo, state: AgentState | None = None, run_skill=None)
 
 
 def test_execute_code_transition():
-    info = StateInfo(
+    info = NodeInfo(
         name="Check",
-        state_type="code",
+        node_type="code",
         instructions="```python\ntransition_to('Win', '42')\n```",
     )
     result = execute_code(_ctx(info))
@@ -43,9 +43,9 @@ def test_execute_code_transition():
 
 
 def test_execute_code_uses_deliverables():
-    info = StateInfo(
+    info = NodeInfo(
         name="Read",
-        state_type="code",
+        node_type="code",
         instructions="```python\np = get_payload()\ntransition_to('Out', p.upper())\n```",
     )
     state = AgentState(
@@ -66,14 +66,14 @@ def test_execute_code_uses_deliverables():
 def test_execute_script(tmp_path):
     script = tmp_path / "step.py"
     script.write_text("import sys\ntransition_to('Done', 'from-script')\n", encoding="utf-8")
-    info = StateInfo(name="Run", state_type="script", src=str(script))
+    info = NodeInfo(name="Run", node_type="script", src=str(script))
     result = execute_script(_ctx(info))
     assert result.next_state == "Done"
     assert result.payload == "from-script"
 
 
 def test_execute_script_missing_src_raises():
-    info = StateInfo(name="Bad", state_type="script")
+    info = NodeInfo(name="Bad", node_type="script")
     try:
         execute_script(_ctx(info))
         assert False, "should raise"
@@ -85,16 +85,16 @@ def test_execute_skill_uses_run_skill_and_payload(tmp_path):
     captured = {}
 
     child = tmp_path / "child_skill.md"
-    child.write_text("# [State] S\n- **is_final**: true\n", encoding="utf-8")
+    child.write_text("# [Node] S\n- **is_final**: true\n", encoding="utf-8")
 
     def fake_run_skill(skill_path, user_input="", initial_deliverables=None):
         captured["path"] = skill_path
         captured["payload"] = initial_deliverables.get("payload")
         return {"payload": "child-result"}
 
-    info = StateInfo(
+    info = NodeInfo(
         name="Child",
-        state_type="skill",
+        node_type="skill",
         src=str(child),
         transitions=[],
     )
@@ -128,5 +128,5 @@ def test_register_executor_extension():
 
     register_executor("wait", wait_executor)
     assert get_executor("wait") is wait_executor
-    result = wait_executor(_ctx(StateInfo(name="W", state_type="wait")))
+    result = wait_executor(_ctx(NodeInfo(name="W", node_type="wait")))
     assert result.payload == "waited"

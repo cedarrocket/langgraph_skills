@@ -55,7 +55,7 @@ langraph_skills/
 │   ├── __main__.py                    # 模块入口，支持 python -m langgraph_skills
 │   ├── cli.py                         # 唯一 CLI 入口，分发 compile/validate/run 子命令
 │   ├── config.py                      # 引擎配置（Settings + 密钥解析 + LGSKILLS_* 环境变量）
-│   ├── models.py                      # IR 数据模型（CompiledSkill / StateInfo / Transition 等）
+│   ├── models.py                      # IR 数据模型（CompiledSkill / NodeInfo / Transition 等）
 │   ├── parser.py                      # 前端解析器：Markdown -> IR（含校验 validate_state_graph）
 │   ├── tools.py                       # 工具注册表（每图隔离）+ 内置工具 + 工具工厂
 │   ├── executors.py                   # 节点执行器（llm/code/script/skill，可插拔注册表）
@@ -76,7 +76,7 @@ langraph_skills/
 ├── tests/                             # 单元测试与金标准测试
 │   └── test_golden_examples.py        # 金标准示例 round-trip 测试
 │
-├── test_skills/                       # 测试与演示 Skills 目录（全部为现行 # [State] 语法）
+├── test_skills/                       # 测试与演示 Skills 目录（全部为现行 # [Node] 语法）
 │   ├── sample_skill.md                # 基础顺序/条件自动跳转测试草稿
 │   ├── test_compiled.md               # 编译后的标准 sample 技能
 │   ├── loop_skill.md                  # 文章草稿多轮循环修改测试
@@ -112,9 +112,9 @@ langraph_skills/
 * **[cli.py](langgraph_skills/cli.py)**：
   唯一的命令行入口，路由 `compile` / `validate` / `run` 三个子命令。为支持 Shebang 直跑，具备智能回退机制：若首个参数不是保留子命令但以 `.md` 结尾（或该文件存在），自动重定向至 `run`。
 * **[models.py](langgraph_skills/models.py)**：
-  IR 数据模型（与 AST 合一）。定义 `CompiledSkill` / `StateInfo` / `Transition` / `ToolInfo` / `InputOption` 及运行时 `AgentState`，并统一序列化逻辑（金标准快照）。
+  IR 数据模型（与 AST 合一）。定义 `CompiledSkill` / `NodeInfo` / `Transition` / `ToolInfo` / `InputOption` 及运行时 `AgentState`，并统一序列化逻辑（金标准快照）。
 * **[parser.py](langgraph_skills/parser.py)**：
-  前端解析器，将 Markdown 状态机解析为 `CompiledSkill`。包含顶层 section 切块、`# [State]` 状态体解析、Transitions 表格/列表解析、IO 保留参数生成、`validate_state_graph` 静态校验，以及未知 section 的容错（默认 warning，strict 模式下升级为 error）。
+  前端解析器，将 Markdown 状态机解析为 `CompiledSkill`。包含顶层 section 切块、`# [Node]` 状态体解析、Transitions 表格/列表解析、IO 保留参数生成、`validate_state_graph` 静态校验，以及未知 section 的容错（默认 warning，strict 模式下升级为 error）。
 * **[tools.py](langgraph_skills/tools.py)**：
   每图隔离的工具注册表（`ToolRegistry`）。内置 `web_search` / `read_file` / `write_file`，支持 `# [Tools]` 声明的 script/api 工具工厂（`TOOL_FACTORIES` 可扩展），以及 `tools/` 目录动态加载。
 * **[executors.py](langgraph_skills/executors.py)**：
@@ -168,7 +168,7 @@ graph TD
 graph TD
     LLM[LLM Node Execution] --> Parse[Extract JSON Output]
     Parse --> Validate{JSON Schema Valid?}
-    Validate -->|Yes| Next[Route to Next State]
+    Validate -->|Yes| Next[Route to Next Node]
     Validate -->|No| Inject[Inject error message to Chat History]
     Inject --> LLM
 ```

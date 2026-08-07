@@ -1,7 +1,7 @@
 {
   "global_text": "",
   "max_loops": 10,
-  "states": {
+  "nodes": {
     "Check": {
       "name": "Check",
       "instructions": "```python\nguess_payload = get_payload()\ntry:\n    guess = int(guess_payload)\nexcept (ValueError, TypeError):\n    guess = 50\n\nif guess == 42:\n    transition_to('Win', 'Correct')\nelse:\n    transition_to('Guess', 'Too high' if guess > 42 else 'Too low')\n```",
@@ -14,7 +14,7 @@
         }
       ],
       "is_final": false,
-      "state_type": "code",
+      "node_type": "code",
       "tools": [],
       "src": null,
       "interactive": false,
@@ -27,7 +27,7 @@
       "instructions": "",
       "transitions": [],
       "is_final": true,
-      "state_type": "llm",
+      "node_type": "llm",
       "tools": [],
       "src": null,
       "interactive": false,

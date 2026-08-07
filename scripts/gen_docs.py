@@ -126,7 +126,7 @@ def render_semantics(spec: Dict[str, Any]) -> str:
     cols = " | ".join(spec["sections"]["state"]["sub_sections"]["transitions"]["forms"]["table"]["columns"])
     out.append(f"```markdown\n## [Transitions]\n| {cols} |\n| :--- | :--- | :--- | :--- |\n| Too short | Draft | no | Please expand. |\n| Acceptable | Publish | yes | |\n```\n")
     out.append("* `Condition`：触发跳转的判断条件（仅作为对 LLM 的提示，不程序化求值）。\n")
-    out.append("* `Next State`：目标状态名。\n")
+    out.append("* `Next Node`：目标状态名。\n")
     out.append("* `Require Approval`：`yes`/`true` 开启人工审批门。\n")
     out.append("* `Feedback`：回传给目标状态的反馈。\n\n")
 
@@ -138,14 +138,14 @@ def render_semantics(spec: Dict[str, Any]) -> str:
     out.append(f"* **未知 section**：{sem['unknown_section']['policy']}"
                f"{'（可通过配置关闭）' if sem['unknown_section']['closable'] else ''}——"
                f"{sem['unknown_section']['reason']}")
-    out.append(f"* **重复状态名**：{sem['duplicate_state_name']['policy']}——"
-               f"{sem['duplicate_state_name']['reason']}")
+    out.append(f"* **重复节点名**：{sem['duplicate_node_name']['policy']}——"
+               f"{sem['duplicate_node_name']['reason']}")
     tr = sem["transition"]
     out.append(f"* **条件跳转**：{tr['condition']['semantics']}")
     ml = sem["max_loops"]
     out.append(f"* **循环预算**：{ml['global']}；节点可覆盖（{ml['node']}）；"
                f"超限后 {ml['enforcement']}。归一化在 {ml['normalization']}。")
-    for stype, desc in sem["state_executor_map"].items():
+    for stype, desc in sem["node_executor_map"].items():
         out.append(f"* **`{stype}` 状态**：{desc}")
     ic = sem["io_contract"]
     out.append(f"* **I/O 契约**：{ic['input_rule']}；{ic['output_rule']}。")
@@ -163,7 +163,7 @@ def render_sdk() -> str:
 * **`messages`**：对话历史列表。
 
 ```markdown
-# [State] Check
+# [Node] Check
 - **type**: code
 
 ```python

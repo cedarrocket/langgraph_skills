@@ -18,13 +18,13 @@ def test_unknown_section_is_warning(tmp_path):
 # [NotASection] hello
 some natural language
 
-# [State] Start
+# [Node] Start
 - **is_final**: true
 """,
     )
     compiled = parse_compiled_skill(path)
     assert any("Unknown section" in w for w in compiled.warnings)
-    assert "Start" in compiled.states
+    assert "Start" in compiled.nodes
 
 
 def test_unknown_section_strict_raises(tmp_path):
@@ -35,7 +35,7 @@ def test_unknown_section_strict_raises(tmp_path):
 
 # [NotASection] hello
 
-# [State] Start
+# [Node] Start
 - **is_final**: true
 """,
     )
@@ -43,13 +43,13 @@ def test_unknown_section_strict_raises(tmp_path):
         parse_compiled_skill(path, strict=True)
 
 
-def test_duplicate_state_name_raises(tmp_path):
+def test_duplicate_node_name_raises(tmp_path):
     path = _write(
         tmp_path,
-        """# [State] Start
+        """# [Node] Start
 - **is_final**: true
 
-# [State] Start
+# [Node] Start
 - **is_final**: true
 """,
     )
@@ -61,22 +61,22 @@ def test_sequential_fallback(tmp_path):
     # 非 final 且无 transitions 的状态，自动连接声明顺序的下一个
     path = _write(
         tmp_path,
-        """# [State] First
+        """# [Node] First
 
 do first
 
-# [State] Second
+# [Node] Second
 
 do second
 
-# [State] Final
+# [Node] Final
 - **is_final**: true
 """,
     )
     compiled = parse_compiled_skill(path)
-    assert compiled.states["First"].transitions[0].next == "Second"
-    assert compiled.states["Second"].transitions[0].next == "Final"
-    assert compiled.states["Final"].transitions == []
+    assert compiled.nodes["First"].transitions[0].next == "Second"
+    assert compiled.nodes["Second"].transitions[0].next == "Final"
+    assert compiled.nodes["Final"].transitions == []
 
 
 def test_io_reader_writer_generates_reserved_options(tmp_path):
@@ -86,7 +86,7 @@ def test_io_reader_writer_generates_reserved_options(tmp_path):
 - **reader**: txt_reader
 - **writer**: txt_writer
 
-# [State] Start
+# [Node] Start
 - **is_final**: true
 """,
     )
@@ -106,25 +106,25 @@ def test_node_max_loops_inherits_global_default(tmp_path):
         """# [Config]
 - **max_loops**: 15
 
-# [State] Start
+# [Node] Start
 - **max_loops**: 3
 
-# [State] Finish
+# [Node] Finish
 - **is_final**: true
 """,
     )
     compiled = parse_compiled_skill(path)
     assert compiled.max_loops == 15
-    assert compiled.states["Start"].max_loops == 3
-    assert compiled.states["Finish"].max_loops is None
+    assert compiled.nodes["Start"].max_loops == 3
+    assert compiled.nodes["Finish"].max_loops is None
 
 
-def test_state_missing_name_raises(tmp_path):
+def test_node_missing_name_raises(tmp_path):
     path = _write(
         tmp_path,
-        """# [State]
+        """# [Node]
 
-# [State] Finish
+# [Node] Finish
 - **is_final**: true
 """,
     )
