@@ -1,47 +1,71 @@
-> 本项目及本 README 目前由 opencode / DeepSeek V4 Flash 创建。功能与文档仍在演进，欢迎指正。
+> English | [简体中文](./README.en.md)
+> This project and this README are currently created by opencode / DeepSeek V4 Flash.
 
 # LangGraph Skills
 
-一个用 Markdown 描述 LLM Agent 状态机的**简易解释器**（toy 级实现）。它把用 Markdown 写的、带特定区段（`# [Node]`、`## [Transitions]` 等）的脚本解析为结构化 IR，再交给 LangGraph 在运行时动态构建图并执行。
+A small interpreter that treats **prompt/LLM graphs as first-class citizens** — think of it as a **Perl for LLM agents**: a script parser whose "language" is Markdown, and whose "execution" is a graph. You describe the agent as a state machine in Markdown; the interpreter compiles it into a LangGraph graph and runs it.
 
-定位：**可以 shebang 直跑的实验性项目**。它不追求成为生产级 agent 框架，而是验证"声明式 Markdown 状态机 + LangGraph"这条路是否可行——写起来像脚本，跑起来是图。
+The core goal: **keep the DSL minimal while covering most agent/harness functionality**, pushing hard-coded logic out of the interpreter into function calls or externally embedded scripts (tools / `type: script` / `type: code`).
 
-最早的设计动机来自 [_archive/agent_v2.py](_archive/agent_v2.py)：一段硬编码的 Python Agent 脚本（对话历史污染、mypy 自修复重试逻辑全写死在代码里）。本项目把这类逻辑搬进 Markdown，用 [assistant_compiled.md](assistant_compiled.md) 这类声明式脚本替代。
-
----
-
-## 当前具备的能力
-
-- **声明式状态机**：`# [Node]` 声明节点，`## [Transitions]` 声明跳转（`->` / `==>` / `==> X <==` 三态），支持 LLM / code / script / skill 四种节点类型
-- **嵌套子图**：`# [SubGraph]` 声明子图，编译为 LangGraph 原生子图节点（`add_node(subgraph)`），子图与父图共享 state，可递归嵌套
-- **上下文压缩闭环**（实验性）：`max_context_length` 元数据 + pre_node 检查点，上下文超限时提前跳转到压缩子图，压缩结果通过 `_child_messages` 协议替换回父图
-- **静态并行**：`- Parallel ==> A, B, C` 扇出到多个节点并行执行，多分支自动汇聚到共同 join 节点，`deliverables` 按字段合并
-- **消息归属与跨度追踪**：每个节点产出消息自动打 `metadata`（node/loop），每次调用记录 span（start/end 索引、类型、prompt 边界、工具调用参数与结果），代码节点内可直接读 `spans`
-- **JSON Schema 校验与自修复**：`## [Output JSON]` 声明输出约束，校验失败自动回退原节点修正
-- **人工审批门**：跳转可声明 `[Require Approval]`，终端交互确认或拒绝
-- **工具注册**：`# [Tools]` 声明 script/api 工具，`tools/` 目录动态加载 `@tool` 装饰器工具，每图独立 ToolRegistry
-- **配置**：三层 JSON 配置（默认 < 全局 `~/.config/langgraph_skills/config.json` < 项目 `lgskills.json`），密钥用 `{file:}`/`{env:}` 引用，`lgskills model` 子命令管理模型
-- **Shebang 直跑**：Markdown 头部 `#!/usr/bin/env lgskills` + `chmod +x` 后可直接执行
-
-**已知局限（如实说明）**：
-- `type: skill` 节点仍是 `run_skill` 模拟执行（不是 LangGraph 子图）；真子图只支持 `# [SubGraph]` 声明
-- 无流式输出、无 checkpoint/恢复、无常驻运行时、无 MCP——单轮执行模型
-- 模型选择目前是全局配置（skill 级），不支持节点级混用
+It originated from [_archive/agent_v2.py](_archive/agent_v2.py): a hard-coded Python agent (prompt-history pollution, mypy self-healing retry logic all baked in). This project moves such logic into declarative Markdown scripts, e.g. [assistant_compiled.md](assistant_compiled.md).
 
 ---
 
-## 快速开始
+## What it is
+
+- A Markdown DSL where sections (`# [Node]`, `## [Transitions]`, …) are graph declarations, and free-form text is prompt
+- A single-pass parser (Markdown → IR) plus a LangGraph backend built at runtime
+- A CLI (`lgskills`) that can run Markdown files directly via shebang (`#!/usr/bin/env lgskills`)
+- A toy/experimental codebase, **not** a production framework — but it is a working interpreter
+
+## What it is not
+
+- Not a heavyweight agent framework with middleware stacks — one small DSL, one runtime
+- Not a full programming language — no expressions or complex control flow in the DSL; that belongs to embedded scripts (see design principles in [spec/dsl_spec.yaml](spec/dsl_spec.yaml))
+- Not a hosted service — it runs locally, single-shot, no streaming / checkpoint / resident runtime yet
+
+---
+
+## Features
+
+### DSL
+
+- **Node types**: `llm` (default), `code` (inline Python), `script` (external file), `skill` (nested skill via `src:`)
+- **Transitions**: `->` (no history inheritance), `==>` (inherit source node's message history), `==> X <==` (inherit + replace parent messages — for compression-style subgraph calls)
+- **Static parallelism**: `- Parallel ==> A, B, C` fans out to multiple nodes; branches converge automatically at a common join node (deadlock-checked at validation time)
+- **Subgraphs**: `# [SubGraph]` compiles to native LangGraph subgraph nodes; recursive nesting supported (`### [Node]` for nested levels)
+- **Context compaction**: `max_context_length` + pre_node checkpoint — when context exceeds the threshold, the node redirects early to a compression subgraph, which replaces parent messages
+- **JSON output schema**: `## [Output JSON]` — validated before transition; on failure the node routes back to itself for self-healing
+- **Node metadata**: `tools`, `interactive`, `history_window`, `max_loops`, `max_context_length`
+
+### Runtime
+
+- **Tools**: `# [Tools]` declares script/api tools; `tools/` directories auto-load `@tool`-decorated Python tools; per-graph isolated `ToolRegistry`; ReAct loop between LLM nodes and tools
+- **Configuration**: three-layer JSON config (default < global `~/.config/langgraph_skills/config.json` < project `lgskills.json`); secrets referenced via `{file:}` / `{env:}`; `lgskills model` manages providers/models
+- **Message provenance & spans**: every node's output messages carry `metadata` (node/loop); every invocation records a span (`start`/`end` message indices, type, prompt boundary, tool-call args/results); code nodes can read `spans` directly — step-by-step auditability without extra DSL syntax
+- **Triggers** (via `triggers.json`): unified "condition → handler" hook layer at pre_llm / post_node / on_error checkpoints; handlers get `deliverables`, `messages`, `transition_to`, `compact()` — no middleware stack needed
+
+### Limitations (honest)
+
+- `type: skill` still uses `run_skill` simulation, not a native subgraph (true subgraphs only via `# [SubGraph]`)
+- Single-shot execution: no streaming, no checkpointing/resume, no resident runtime, no MCP
+- Model selection is global (skill-level), not per-node
+- No human-approval gate in the runtime (a parsed attribute exists in the spec grammar, but the interactive gate is not implemented)
+
+---
+
+## Quick start
 
 ```bash
-pip install -e .            # 注册 lgskills 命令
+pip install -e .            # registers the lgskills command
 ```
 
-配置 API 密钥（三选一）：
+API key (one of):
 
 ```bash
-export DEEPSEEK_API_KEY=sk-...            # 或
+export DEEPSEEK_API_KEY=sk-...            # or
 export DEEPSEEK_API_KEY_FILE=~/sys/keys/deepseek.txt
-# 或写入 ~/.config/langgraph_skills/config.json 用 {file:} 引用（推荐）
+# or write ~/.config/langgraph_skills/config.json using {file:} (recommended)
 ```
 
 ```json
@@ -58,28 +82,32 @@ export DEEPSEEK_API_KEY_FILE=~/sys/keys/deepseek.txt
 }
 ```
 
-常用命令：
+Common commands:
 
 ```bash
-lgskills validate test_skills/sample_skill.md     # 静态校验
-lgskills run test_skills/game_compiled.md "start" # 运行
-lgskills model list                                # 查看模型
+lgskills validate test_skills/sample_skill.md     # static validation
+lgskills run test_skills/game_compiled.md "start" # run
+lgskills model list                                # list providers/models
 ```
 
-直接当脚本跑：
+Run a Markdown file as a script:
 
 ```bash
 chmod +x bootstrap_compiled.md
 ./bootstrap_compiled.md --input_path assistant_draft.md --output_path out.md
 ```
 
-一个最小示例：
+---
+
+## A first example
+
+A minimal two-node agent:
 
 ````markdown
 # [Node] Ask
 - **type**: llm
 
-用一句话回答用户问题。
+Answer the user's question in one sentence.
 
 ## [Transitions]
 - Default -> Done
@@ -93,50 +121,147 @@ transition_to(None, "done")
 ```
 ````
 
+Run it:
+
+```bash
+lgskills run ask.md "What is 2+2?"
+```
+
+A fan-out / join example (parallel branches, auto-converge):
+
+````markdown
+# [Node] Split
+- **type**: code
+
+```python
+transition_to(["Research", "Review"], "x")
+```
+
+## [Transitions]
+- Parallel ==> Research, Review
+
+# [Node] Research
+- **type**: llm
+
+Research the topic; write your findings to deliverables["research"] in your final payload.
+
+## [Transitions]
+- Default -> Join
+
+# [Node] Review
+- **type**: llm
+
+List the risks of the topic; write them to deliverables["risks"] in your final payload.
+
+## [Transitions]
+- Default -> Join
+
+# [Node] Join
+- **is_final**: true
+- **type**: code
+
+```python
+combined = deliverables.get("payload", "")
+transition_to(None, combined)
+```
+````
+
+A compression example (context compaction loop):
+
+````markdown
+# [Node] Work
+- **type**: llm
+- **max_context_length**: 300
+
+Continue the task.
+
+## [Transitions]
+- Default ==> Compact <==
+
+# [SubGraph] Compact
+## [Node] Summarize
+- **type**: llm
+
+Summarize the conversation history into one short message.
+
+## [Transitions]
+- Default -> Apply
+
+## [Node] Apply
+- **type**: code
+
+```python
+deliverables["_child_messages"] = messages[-1:]  # keep only the summary
+transition_to(None, "compacted")
+```
+````
+
+When the context exceeds 300 chars, `Work` redirects to the `Compact` subgraph before running; the subgraph replaces the parent's message history with the summary.
+
 ---
 
-## 项目结构
+## How it works
+
+```
+Markdown source ─[parser.py]→ IR (models.py) ─[validator]→ validated IR
+      ─[graph.py / build_graph]→ LangGraph graph ─[executors.py]→ execution
+```
+
+- **Frontend** (`parser.py` + `models.py`): Markdown → structured IR, independently testable; unknown sections are warnings, not errors (the source is markdown first)
+- **Executors** (`executors.py`): pluggable node-type → executor mapping (`register_executor` to add new types)
+- **Tools** (`tools.py`): per-graph isolated registry; nested skills don't pollute each other
+- **Config** (`config.py`): env vars + three-layer JSON, single entry point
+- **Spec-driven**: [spec/dsl_spec.yaml](spec/dsl_spec.yaml) is the single source of truth — docs, compiler prompt and golden tests are all generated from it
+
+## Project layout
 
 ```
 langgraph_skills/
-├── langgraph_skills/          # 核心包
-│   ├── cli.py                 # CLI 入口（compile/validate/run/model）
-│   ├── config.py              # 三层 JSON 配置 + 密钥引用
-│   ├── models.py              # IR 数据模型 + AgentState（reducer）
-│   ├── parser.py              # Markdown -> IR + 静态校验
-│   ├── tools.py               # 每图隔离的工具注册表
-│   ├── executors.py           # 节点执行器（llm/code/script/skill）
-│   ├── nodes.py               # 节点工厂 + 路由器 + 检查点
-│   ├── graph.py               # 图构建（含真子图编译）
-│   ├── runner.py              # 运行时（run_skill/run_cli）
-│   └── triggers.py            # 触发机制（condition -> handler）
-├── spec/dsl_spec.yaml         # DSL 语法唯一真相源
-├── scripts/                   # 从 spec 生成文档/编译器提示词/golden IR
-├── tests/                     # 测试（151+，含 golden 快照测试）
-├── test_skills/               # 示例与测试技能
-├── bootstrap_compiled.md      # 自举编译器（shebang 示例）
-├── assistant_compiled.md      # 编程助手示例
-└── PROCESS.md                 # 项目维护流程（SOP）
+├── langgraph_skills/          # core package
+│   ├── cli.py                 # CLI entry (compile/validate/run/model)
+│   ├── config.py              # three-layer JSON config + secret refs
+│   ├── models.py              # IR models + AgentState (reducers)
+│   ├── parser.py              # Markdown -> IR + static validation
+│   ├── tools.py               # per-graph tool registry + factories
+│   ├── executors.py           # node executors (llm/code/script/skill)
+│   ├── nodes.py               # node factory + routers + checkpoints
+│   ├── graph.py               # graph building (incl. true subgraphs)
+│   ├── runner.py              # runtime (run_skill/run_cli)
+│   ├── triggers.py            # condition -> handler hook layer
+│   └── compiler.py            # LLM compiler for loose draft -> compiled
+├── spec/dsl_spec.yaml         # single source of truth for the DSL
+├── scripts/                   # gen docs / compiler prompt / golden IR
+├── tests/                     # tests (150+, incl. golden snapshot)
+├── test_skills/               # example & test skills
+├── bootstrap_compiled.md      # self-bootstrapping compiler (shebang demo)
+├── assistant_compiled.md      # coding-assistant example
+├── PROCESS.md                 # maintenance SOP (quality gates, backlog)
+└── README.md / README.en.md   # this doc (CN/EN)
 ```
 
-DSL 语法见 [skill_syntax_guide.md](skill_syntax_guide.md)（由 `spec/dsl_spec.yaml` 生成，人工定稿）。架构与设计讨论记录在 [PROCESS.md](PROCESS.md)。
+DSL syntax reference: [skill_syntax_guide.md](skill_syntax_guide.md). Design discussions and backlog: [PROCESS.md](PROCESS.md).
 
 ---
 
-## 开发
+## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -q                 # 测试
-mypy langgraph_skills            # 类型检查
-ruff check langgraph_skills tests scripts   # lint
+pytest tests/ -q                                      # tests
+mypy langgraph_skills                                 # type check
+ruff check langgraph_skills tests scripts             # lint
+# validate all shipped skills (same loop as CI):
+for skill in *.md test_skills/*.md; do
+  case "$skill" in README.md|skill_syntax_guide.md|PROCESS.md|README.en.md) continue;; esac
+  lgskills validate "$skill" || exit 1
+done
 ```
 
-修改 DSL 语法后需要重新生成文档/编译器提示词：`python scripts/gen_docs.py`、`python scripts/gen_compiler_prompt.py`（见 PROCESS.md 的质量门）。
+After changing the DSL: edit `spec/dsl_spec.yaml` first, then regenerate (`python scripts/gen_docs.py`, `python scripts/gen_compiler_prompt.py`), update golden examples if needed, and run the full suite — see PROCESS.md.
 
 ---
 
-## 声明
+## Notice
 
-- 本项目是一个学习/实验性质的小型解释器，**不是**生产级 agent 框架。
-- 本项目及本 README 目前由 opencode / DeepSeek V4 Flash 创建。
+- A toy/experimental interpreter — **not** a production agent framework.
+- This project and this README are currently created by opencode / DeepSeek V4 Flash.

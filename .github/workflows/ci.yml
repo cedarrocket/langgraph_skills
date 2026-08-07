@@ -41,7 +41,7 @@ jobs:
         run: |
           for skill in *.md test_skills/*.md; do
             case "$skill" in
-              README.md|skill_syntax_guide.md|PROCESS.md) continue ;;
+              README.md|README.en.md|skill_syntax_guide.md|PROCESS.md) continue ;;
             esac
             echo "=== $skill ==="
             lgskills validate "$skill" || exit 1
