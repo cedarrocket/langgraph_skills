@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END
@@ -46,10 +46,12 @@ def run_skill(
     user_input: str = "",
     initial_deliverables: Optional[Dict[str, Any]] = None,
     initial_messages: Optional[List[Any]] = None,
+    on_token: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """执行 skill。
 
     initial_messages：外部传入的初始消息列表（子图调用时传入父图 messages）。
+    on_token：流式回调（每个 LLM token 增量文本，用于流式输出给宿主）。
     返回 final_deliverables，且若 initial_messages 提供则附带 "messages" 键（压缩后回传）。
     """
     print(f"1. Parsing and compiling skill graph: {skill_path}...", file=sys.stderr)
@@ -99,6 +101,7 @@ def run_skill(
         run_skill=run_skill,
         settings=settings,
         triggers=triggers,
+        on_token=on_token,
     )
 
     start_node = list(node_dict.keys())[0]

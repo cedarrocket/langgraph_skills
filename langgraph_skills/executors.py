@@ -48,6 +48,7 @@ class ExecutorContext:
     model: str = field(default=DEFAULT_MODEL)
     base_url: str = field(default=DEFAULT_BASE_URL)
     temperature: float = field(default=DEFAULT_TEMPERATURE)
+    on_token: Optional[Callable[[str], None]] = None  # 流式回调：每个 LLM token 增量文本
 
 
 @dataclass
@@ -165,6 +166,7 @@ def execute_skill(ctx: ExecutorContext) -> ExecutorResult:
         user_input=f"Parent payload context: {parent_payload}",
         initial_deliverables={"payload": parent_payload},
         initial_messages=child_messages,
+        on_token=ctx.on_token,
     )
 
     # 消息回传：覆盖（replace）或合并（append 子图新增）
@@ -255,6 +257,49 @@ def _run_context_executor(node_start: NodeHook, state: AgentState, ctx: Executor
     """执行 NodeStart 的 executor，产出 ctx_messages（喂给 LLM 的消息列表）。"""
     result = _exec_hook_executor(node_start, state, ctx)
     return list(result["ctx_messages"]) if result["ctx_messages"] else []
+
+
+def _invoke_llm(llm_with_tools: Any, messages: List[BaseMessage], ctx: ExecutorContext) -> Any:
+    """调用 LLM。有 on_token 回调时走 stream（逐 token 回调 + 聚合完整响应），否则 invoke。
+
+    返回完整 response（AIMessage），包含 tool_calls / metadata / content。
+    """
+    if ctx.on_token is None:
+        return llm_with_tools.invoke(messages)
+
+    # stream 模式：逐 chunk 回调 token 文本，同时累积聚合
+
+    chunks: List[Any] = []
+    for chunk in llm_with_tools.stream(messages):
+        chunks.append(chunk)
+        if getattr(chunk, "content", None):
+            ctx.on_token(str(chunk.content))
+
+    if not chunks:
+        return llm_with_tools.invoke(messages)
+
+    merged = chunks[0]
+    for c in chunks[1:]:
+        merged += c  # type: ignore[operator]
+    # 聚合后的 AIMessageChunk 用 + 已是 AIMessage（保留 tool_calls/metadata）；保险起见转 message
+    to_message = getattr(merged, "to_message", None)
+    if callable(to_message):
+        merged = to_message()
+    # 清理 tool_calls：stream 聚合时 name 可能被重复拼接（LangChain chunk 加法对 name 做字符串拼接），
+    # 按 id 分组取非空 name 修正
+    if merged.tool_calls:
+        name_by_id: Dict[str, str] = {}
+        for chunk in chunks:
+            for tcc in getattr(chunk, "tool_call_chunks", []) or []:
+                n = tcc.get("name") or ""
+                if n and tcc.get("id"):
+                    name_by_id[tcc["id"]] = n
+        if name_by_id:
+            for tc in merged.tool_calls:
+                fixed = name_by_id.get(tc.get("id", ""))
+                if fixed:
+                    tc["name"] = fixed
+    return merged
 
 
 def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
@@ -375,7 +420,7 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
     if llm_triggers:
         _run_pre_llm_checkpoint(llm_triggers, info, state, messages)
 
-    response = llm_with_tools.invoke(messages)
+    response = _invoke_llm(llm_with_tools, messages, ctx)
 
     out_msgs: List[BaseMessage] = [response]
     next_state = None

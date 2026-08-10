@@ -48,6 +48,7 @@ def create_node(
     settings: Optional[Settings] = None,
     triggers: Optional[List[Trigger]] = None,
     subgraph_names: Optional[set] = None,
+    on_token: Optional[Callable[[str], None]] = None,
 ):
     """动态生成通用的 LangGraph 节点处理函数。
 
@@ -149,6 +150,7 @@ def create_node(
             base_url=(settings.base_url if settings else DEFAULT_BASE_URL),
             temperature=(settings.temperature if settings else DEFAULT_TEMPERATURE),
             config={"triggers": triggers or []},
+            on_token=on_token,
         )
         result = executor(ctx)
         next_state = result.next_state

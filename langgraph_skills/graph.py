@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
@@ -71,6 +71,7 @@ def _compile_subgraph(
     triggers: Optional[List[Trigger]],
     subgraph_names: Optional[set] = None,
     tool_hooks: Optional[ToolHooks] = None,
+    on_token: Optional[Callable[[str], None]] = None,
 ):
     """把 # [SubGraph] 编译为 LangGraph 子图（真子图）。
 
@@ -100,12 +101,12 @@ def _compile_subgraph(
             # 嵌套子图：递归编译为真子图节点 + 后处理节点
             nested = info.subgraph
             nested_graph = _compile_subgraph(
-                nested, base_dir, tools, global_text, safe_input, run_skill, settings, triggers, subgraph_names, tool_hooks
+                nested, base_dir, tools, global_text, safe_input, run_skill, settings, triggers, subgraph_names, tool_hooks, on_token
             )
             workflow.add_node(name, nested_graph)
             workflow.add_node(f"_sub_after_{name}", _make_subgraph_after(name))
         else:
-            workflow.add_node(name, create_node(info, tools, global_text, safe_input, run_skill, settings, triggers, subgraph_names))
+            workflow.add_node(name, create_node(info, tools, global_text, safe_input, run_skill, settings, triggers, subgraph_names, on_token))
 
     tools_node = ToolNode(tools.all())
     workflow.add_node("tools", _make_tool_node(tools_node, tool_hooks))
@@ -238,6 +239,7 @@ def build_graph(
     run_skill: Optional[RunSkillFn] = None,
     settings: Optional[Settings] = None,
     triggers: Optional[List[Trigger]] = None,
+    on_token: Optional[Callable[[str], None]] = None,
 ):
     """编译 Markdown Skill 并返回标准的 LangGraph CompiledStateGraph 实例。
 
@@ -302,13 +304,13 @@ def build_graph(
     # 添加所有节点
     subgraph_names = set(compiled.subgraphs.keys())
     for name, info in node_dict.items():
-        workflow.add_node(name, create_node(info, tools, compiled.global_text, safe_input, run_skill, settings, triggers, subgraph_names))
+        workflow.add_node(name, create_node(info, tools, compiled.global_text, safe_input, run_skill, settings, triggers, subgraph_names, on_token))
 
     # 编译并注册子图节点（# [SubGraph]）——真子图，作为父图节点
     base_dir = os.path.dirname(os.path.abspath(skill_path))
     for sub_name, sub in compiled.subgraphs.items():
         sub_graph = _compile_subgraph(
-            sub, base_dir, tools, compiled.global_text, safe_input, run_skill, settings, triggers, subgraph_names, tool_hooks
+            sub, base_dir, tools, compiled.global_text, safe_input, run_skill, settings, triggers, subgraph_names, tool_hooks, on_token
         )
         workflow.add_node(sub_name, sub_graph)
         # 子图后处理节点：==> X <== 覆盖语义（子图返回后整体替换父图 messages）

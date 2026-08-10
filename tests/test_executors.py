@@ -87,7 +87,7 @@ def test_execute_skill_uses_run_skill_and_payload(tmp_path):
     child = tmp_path / "child_skill.md"
     child.write_text("# [Node] S\n- **is_final**: true\n", encoding="utf-8")
 
-    def fake_run_skill(skill_path, user_input="", initial_deliverables=None, initial_messages=None):
+    def fake_run_skill(skill_path, user_input="", initial_deliverables=None, initial_messages=None, on_token=None):
         captured["path"] = skill_path
         captured["payload"] = initial_deliverables.get("payload")
         return {"payload": "child-result"}
