@@ -32,6 +32,11 @@ else:
     transition_to('Guess', 'Too low')
 ```
 
+## [Transitions]
+- Correct -> Win
+- Too high -> Guess
+- Too low -> Guess
+
 # [Node] Win
 - **is_final**: true
 

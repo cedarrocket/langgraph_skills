@@ -756,16 +756,14 @@ def _extract_transition_targets(code_text: str) -> List[str]:
 def _check_node_transition_declared(
     info: NodeInfo,
     subgraph_names: set,
-    node_names: List[str],
-    strict: bool = False,
 ) -> List[str]:
     """校验 code/script 节点里 transition_to 的目标已在节点 transitions 表声明。
 
     表外跳转（如 Parse 里 transition_to("RetryFix") 但表里没写 RetryFix）是隐藏 bug 源，
     提前在静态校验暴露。跳过无法读取的 script 文件（不阻断）。
 
-    strict=True（子图内节点）：目标必须声明在 ## [Transitions] 表或为子图名。
-    strict=False（主图节点）：允许跳转任意主图节点（表是 LLM 提示 + signal 匹配，不限制运行流转）。
+    主图与子图统一要求：transition_to 目标必须声明在 ## [Transitions] 表，
+    或为目标子图名（跳子图）。防止"表声明"与"代码实际跳转"漂移。
     """
     errors: List[str] = []
     if info.node_type not in (NODE_CODE, NODE_SCRIPT):
@@ -785,6 +783,11 @@ def _check_node_transition_declared(
     if not targets:
         return errors
 
+    # is_final 节点的 transition_to 目标是"图级出口/返回信号"（如子图 Exit 返回主图），
+    # 不强制表内声明
+    if info.is_final:
+        return errors
+
     declared = {t.next.strip() for t in info.transitions}
     declared.add("end")
     declared.add("finish")
@@ -792,8 +795,6 @@ def _check_node_transition_declared(
         tgt = target.lower() if target.lower() in ("end", "finish") else target
         if tgt in declared or target in subgraph_names:
             continue
-        if not strict and target in node_names:
-            continue  # 主图：跳任意主图节点合法
         errors.append(
             f"Node '{info.name}' calls transition_to({target!r}) but it is not declared in "
             f"'## [Transitions]'. Declared targets: {sorted(declared - {'end', 'finish'}) or 'none'}"
@@ -805,14 +806,12 @@ def validate_node_graph(
     node_dict: Dict[str, NodeInfo],
     subgraph_names: Optional[set] = None,
     allow_last_implicit_end: bool = False,
-    strict_transitions: bool = False,
     skip_transition_target_check: bool = False,
 ) -> List[str]:
     """静态校验节点图（语义分析）。
 
     subgraph_names：已声明的子图名集合；指向子图的 transition 不算悬空。
     allow_last_implicit_end：允许最后一个非 final 节点隐式结束（子图内最后节点返回父图）。
-    strict_transitions：子图内节点严格要求 transition_to 目标在表中声明（主图允许跳任意节点）。
     skip_transition_target_check：跳过 transition_to 目标校验（src 简写子图独立文件，目标由主图解析）。
     """
     errors: List[str] = []
@@ -847,9 +846,7 @@ def validate_node_graph(
                 )
         # 校验 transition_to 目标已在 transitions 表声明（防表外跳转隐藏 bug）
         if not skip_transition_target_check:
-            errors.extend(
-                _check_node_transition_declared(info, subgraph_names, node_names, strict=strict_transitions)
-            )
+            errors.extend(_check_node_transition_declared(info, subgraph_names))
         for t in info.transitions:
             target = t.next.strip()
             if target.lower() in ("end", "finish"):

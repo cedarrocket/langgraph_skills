@@ -69,6 +69,7 @@ You are an expert Python programmer and development assistant helping users desi
 | :--- | :--- | :--- | :--- |
 | mypy check passes | Publish | no | Mypy check passed. Ready to publish. |
 | mypy check fails | FixCode | no | Mypy check failed. Need to fix errors. |
+| no code found | WriteCode | no | No Python code blocks found; regenerate full code. |
 
 # [Node] FixCode
 

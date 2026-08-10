@@ -1,6 +1,6 @@
 import pytest
 
-from langgraph_skills.parser import ParseError, parse_compiled_skill
+from langgraph_skills.parser import ParseError, parse_compiled_skill, validate_node_graph
 
 
 def _write(tmp_path, content, name="skill.md"):
@@ -223,3 +223,47 @@ def test_tools_metadata_bracket_and_plain(tmp_path):
     )
     compiled2 = parse_compiled_skill(path2)
     assert compiled2.nodes["B"].tools == ["read_file", "write_file"]
+
+
+def test_main_graph_transition_to_must_be_declared(tmp_path):
+    """主图 code 节点 transition_to 目标必须在 transitions 表声明（防漂移）。"""
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **type**: code
+
+```python
+transition_to("B", "x")
+```
+
+## [Transitions]
+- Default -> C
+
+# [Node] C
+- **is_final**: true
+""",
+    )
+    compiled = parse_compiled_skill(path)
+    errors = validate_node_graph(compiled.nodes)
+    assert any("not declared" in e for e in errors)
+
+    # 表内声明后通过
+    path2 = _write(
+        tmp_path,
+        """# [Node] A
+- **type**: code
+
+```python
+transition_to("B", "x")
+```
+
+## [Transitions]
+- Default -> B
+
+# [Node] B
+- **is_final**: true
+""",
+        name="skill2.md",
+    )
+    compiled2 = parse_compiled_skill(path2)
+    assert validate_node_graph(compiled2.nodes) == []

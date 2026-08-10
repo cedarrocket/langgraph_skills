@@ -103,7 +103,6 @@ def _compile_subgraph(
         sub_dict,
         subgraph_names=sub_subgraph_names,
         allow_last_implicit_end=True,
-        strict_transitions=True,
     )
     if sub_errors:
         raise ValueError(f"SubGraph '{sub.name}':\n" + "\n".join(sub_errors))
