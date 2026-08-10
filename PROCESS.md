@@ -440,3 +440,7 @@ LLM 节点（决策）→ 输出结构化指令 JSON 到 payload
 **子图返回语义（实测确认）**：子图返回后，路由到的目标节点是**完整重新执行一次**（node_function 从头：NodeStart context 提取 → executor → NodeEnd），loop 计数 +1。与 LangGraph 标准一致——子图是父图的一个节点，返回后父图按边调度下一节点（全新调用），state 更新（messages 合并/deliverables）对后续可见，无"从中断处继续"概念。
 
 **NodeStart executor 语义**：NodeStart 代码块**总是执行**（入口钩子副作用），`context: executor` 时其 ctx_messages 产出作为 LLM 输入。当前 executor 仅在 LLM 节点（execute_llm context 构造）执行；code/script 节点的 NodeStart executor 未执行——待统一到 node_function 通用层（与 NodeEnd 对称），作为后续项。
+
+**多步工具操作死循环（已修复，pi_agent）**：用户请求"创建两个文件"时，Agent 用 context: all 每次看到原始请求仍在 → 可能重复写同一文件 → 子图返回回 Agent → 又触发 tool_call → 无限循环到 loop 上限。loop 超限时模型输出 SubmitResult XML 文本 → NodeEnd 检测 { 提取 JSON → 路由冲突 → 无限 Loop limit 警告。
+**修复**：Agent NodeEnd 检测"最近消息是 [工具结果]"（子图刚返回的汇报轮）→ 不触发 tool_call（即使 payload 含 JSON），当作文本汇报。用户新输入（Input 追加 HumanMessage）后恢复决策。实测多步写文件正常（连续写 setting/novel → 汇报 → 退出）。
+**根因认知**："无状态 agent + 全量上下文"的固有缺陷——无任务完成追踪，靠模型自觉不重复。本修复是防御性缓解（汇报轮禁工具调用），根治需任务状态追踪（未来）。

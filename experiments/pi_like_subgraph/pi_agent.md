@@ -29,8 +29,19 @@
 ```python
 import json as _json, re as _re
 p = str(deliverables.get("payload", "")).strip()
+
+# 若最近一条消息是工具结果（子图刚返回），本轮是"汇报轮"：
+# 即使 payload 是工具指令 JSON（重复请求），也不触发 tool_call，避免死循环。
+# 汇报完成后回 Input 等用户新输入，新输入到达后才恢复决策。
+last_msg = messages[-1] if messages else None
+just_returned_from_tool = (
+    last_msg is not None
+    and getattr(last_msg, "content", "") is not None
+    and "[工具结果]" in str(getattr(last_msg, "content", ""))
+)
+
 m = _re.search(r"\{.*\}", p, _re.DOTALL)
-if m:
+if m and not just_returned_from_tool:
     try:
         _json.loads(m.group(0))
         deliverables["payload"] = m.group(0)
@@ -39,7 +50,7 @@ if m:
         # 有 {} 但非合法 JSON：当作文本回答
         print(f"\nAI: {p}\n")
 else:
-    # 纯文本回答：显示给用户
+    # 纯文本回答或汇报轮：显示给用户
     if p:
         print(f"\nAI: {p}\n")
 ```
