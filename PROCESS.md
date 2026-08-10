@@ -397,3 +397,29 @@ triggers.py 核心 → 检查点埋点 → 语法糖展开 → triggers.json 加
 - 执行点：graph.py ToolNode 包装器内（pre_tool 调用前；post_tool/post_tool_failure 调用后）
 
 **实现**：hooks.py（ToolHooks/ToolHookRule/load_hooks/fire_tool_hooks）、graph.py（ToolNode 包装器触发 + matcher 匹配）、executors.py（`_exec_hook_executor`）、nodes.py（NodeEnd signal 对接）、triggers.py（run_handler 注入 scope 全键）。测试 test_hooks.py（6 个）+ test_node_hooks.py（+2）。
+
+### 7.11 工具调用子图化（方案验证，✅ 可行性确认）
+
+**背景**：实操（file-assistant agent）暴露"自由式 ReAct 模型驱动不稳"（LLM 跳步/误判工具）。结论：不靠 must_call 硬编码强制（已撤销），改为**工具调用一律走子图**。
+
+**方案**（experiments/tool_subgraph/）：
+```
+LLM 节点（决策）→ 输出结构化指令 JSON 到 payload
+  → `==> ToolExec <==` 跳工具子图
+  → 子图内 code/script 节点读指令、执行（带安全边界）、写 tool_result
+  → `==> <==` 回传父图 → 后续节点
+```
+
+**验证结论**（真实 key）：
+- ✅ LLM 自主决策出指令（`{"tool": "read_file", "path": ...}`）→ 子图执行 → 回传结果（读到文件内容）
+- ✅ 安全边界：子图内 `if not path.startswith(allow_root)` 拒绝超界路径（`/etc/passwd` 被拦截，返回 `Error: 安全边界拒绝`）
+- ✅ 执行确定性：工具执行是子图内 Python（可审计、可加权限/边界），不依赖 LLM 直接调工具
+
+**架构意义**：这解决了"模型驱动不稳"——LLM 只在"决策点"出现（输出指令），执行由子图内确定代码完成。安全边界/权限在子图内声明式表达，比 ToolNode 全局权限更细粒度（每个工具子图自管）。
+
+**关键设计问题（待后续）**：
+- LLM 输出指令的格式约定（目前是自由 JSON 到 payload；未来可定义 `## [Output JSON]` schema 强制）
+- 工具子图的复用/注册（一个工具 = 一个可复用子图，可能挂到 `# [Tools]` 级）
+- 与现有 ToolNode ReAct 的关系（子图化作为"复杂/需安全边界工具"的路径，保留传统 ReAct 作为快捷路径）
+
+**当前 streaming**（§7.10 后补）：`on_token` 回调逐 token 流式输出（方案 A，闭包回调）；`_invoke_llm` stream + 聚合（tool_calls 名修正）。测试 test_streaming.py。
