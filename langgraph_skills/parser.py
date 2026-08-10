@@ -430,7 +430,11 @@ def parse_node_body(node_name: str, body_text: str) -> NodeInfo:
                     if k == "type":
                         metadata["type"] = v.lower()
                     elif k == "tools":
-                        metadata["tools"] = [t.strip() for t in v.split(",") if t.strip()]
+                        # 支持 `- **tools**: [a, b]`（带方括号）或 `- **tools**: a, b`
+                        v_stripped = v.strip()
+                        if v_stripped.startswith("[") and v_stripped.endswith("]"):
+                            v_stripped = v_stripped[1:-1]
+                        metadata["tools"] = [t.strip() for t in v_stripped.split(",") if t.strip()]
                     elif k == "src":
                         metadata["src"] = v
                     elif k == "interactive":

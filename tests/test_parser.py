@@ -199,3 +199,27 @@ def test_table_transition_inherit_history_prefix(tmp_path):
     t_normal = next(t for t in compiled.nodes["A"].transitions if t.next == "Reask")
     assert t_inherit.inherit_history is True
     assert t_normal.inherit_history is False
+
+
+def test_tools_metadata_bracket_and_plain(tmp_path):
+    """tools 元数据支持 `[a, b]`（带方括号）与 `a, b`（无括号）两种写法。"""
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **type**: llm
+- **tools**: [list_dir, read_text, write_text, append_text]
+""",
+    )
+    compiled = parse_compiled_skill(path)
+    assert compiled.nodes["A"].tools == ["list_dir", "read_text", "write_text", "append_text"]
+
+    path2 = _write(
+        tmp_path,
+        """# [Node] B
+- **type**: llm
+- **tools**: read_file, write_file
+""",
+        name="skill2.md",
+    )
+    compiled2 = parse_compiled_skill(path2)
+    assert compiled2.nodes["B"].tools == ["read_file", "write_file"]
