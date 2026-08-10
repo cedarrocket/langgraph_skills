@@ -116,6 +116,37 @@ class Transition:
 
 
 @dataclass
+class NodeHook:
+    """节点级钩子区块（## [NodeStart] / ## [NodeEnd]）。
+
+    - context：输入上下文模式（NodeStart 用）：all（全部历史，缺省）/
+      previous_payload（只继承上一节点最终 payload）/ executor（executor 产出）
+    - conditions：on: 条件列表（谓词/外部引用 -> signal）
+    - executor：可选 Python 代码（内联或被 src 引用的外部文件）
+    """
+
+    context: str = "all"
+    conditions: List["OnCondition"] = field(default_factory=list)
+    executor: Optional[str] = None  # 内联代码或脚本路径（src 简写）
+    src: Optional[str] = None  # 外部脚本路径（executor 的 src 形式）
+
+
+@dataclass
+class OnCondition:
+    """一个 on: 条件（抛出 signal，由 Transitions 表格匹配跳转）。
+
+    kind：内置谓词（context_length_exceeded / loop_count_exceeded / error_flag /
+          tool_failed）/ pyfunction / trigger
+    arg：谓词数值参数，或 pyfunction/trigger 的文件路径
+    signal：抛出的信号名，必须与 Transitions 表格 Condition 列一致
+    """
+
+    kind: str = ""  # predicate | pyfunction | trigger
+    arg: Any = None  # 数值或路径
+    signal: str = ""
+
+
+@dataclass
 class NodeInfo:
     """单个状态节点的声明式描述。"""
 
@@ -132,6 +163,8 @@ class NodeInfo:
     history_window: Optional[int] = None
     max_loops: Optional[int] = None  # None 表示继承全局 max_loops
     max_context_length: Optional[int] = None  # pre_node 检查点：上下文超过该值时提前 return 跳转（去压缩子图）
+    node_start: Optional[NodeHook] = None  # ## [NodeStart] 节点入口钩子（context/on:/executor）
+    node_end: Optional[NodeHook] = None  # ## [NodeEnd] 节点出口钩子（on:/executor，不可改上下文）
     triggers: List[Dict[str, Any]] = field(default_factory=list)  # 节点级 trigger 配置（dict 形式）
 
     @property

@@ -15,7 +15,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
@@ -26,7 +26,7 @@ from langgraph_skills.config import (
     Settings,
     get_deepseek_key,
 )
-from langgraph_skills.models import NODE_CODE, NODE_LLM, NODE_SCRIPT, NODE_SKILL, AgentState, NodeInfo
+from langgraph_skills.models import NODE_CODE, NODE_LLM, NODE_SCRIPT, NODE_SKILL, AgentState, NodeHook, NodeInfo
 from langgraph_skills.tools import ToolRegistry
 
 # ---------------------------------------------------------------------------
@@ -183,6 +183,56 @@ def execute_skill(ctx: ExecutorContext) -> ExecutorResult:
     return ExecutorResult(next_state=next_state, payload=child_deliverables.get("payload", ""))
 
 
+def _run_context_executor(node_start: NodeHook, state: AgentState, ctx: ExecutorContext) -> List[BaseMessage]:
+    """执行 NodeStart 的 executor，产出 ctx_messages（喂给 LLM 的消息列表）。
+
+    executor 形态：内联代码块（NodeHook.executor）或 src 外部文件（NodeHook.src）。
+    注入环境：state/messages/deliverables/get_payload/transition_to/signal/spans。
+    代码须设置局部变量 ctx_messages（消息列表）或调用 signal("name") 抛 condition。
+    返回 ctx_messages（可为空由调用方校验）。
+    """
+    import os as _os
+
+    code = node_start.executor
+    if not code and node_start.src:
+        src_path = node_start.src if _os.path.isabs(node_start.src) else node_start.src
+        if not _os.path.exists(src_path):
+            raise FileNotFoundError(f"NodeStart executor src not found: {src_path}")
+        with open(src_path, "r", encoding="utf-8") as f:
+            code = f.read()
+    if not code:
+        raise RuntimeError("NodeStart context: executor requires inline code or src.")
+
+    code = _strip_code_fence(code)
+
+    local_vars: Dict[str, Any] = {
+        "state": state,
+        "messages": state.get("messages", []),
+        "deliverables": state.get("deliverables", {}),
+        "spans": state.get("spans", []),
+        "get_payload": lambda: state.get("deliverables", {}).get("payload"),
+        "HumanMessage": HumanMessage,
+        "AIMessage": AIMessage,
+        "SystemMessage": SystemMessage,
+        "transition_to": lambda *a: (_ for _ in ()).throw(
+            RuntimeError("NodeStart executor must use signal() or set ctx_messages, not transition_to().")
+        ),
+        "signal": lambda _name: (_ for _ in ()).throw(
+            RuntimeError("signal() is only available in NodeEnd executor.")
+        ),
+        "ctx_messages": None,
+    }
+
+    try:
+        exec(code, {}, local_vars)
+    except Exception as e:
+        print(f"Error executing NodeStart executor: {e}")
+        raise e
+
+    result = local_vars.get("ctx_messages")
+    return list(result) if result else []
+
+
 def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
     """type=llm：构造 prompt、绑定工具、调用 LLM、处理 SubmitResult / 交互。"""
     info = ctx.node_info
@@ -252,23 +302,41 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
                 f"Valid options: {list(set(valid_nexts))}."
             )
 
-    # 历史窗口
-    if "start_msg_index" not in state["deliverables"]:
-        state["deliverables"]["start_msg_index"] = 0
-        current_node_messages = state["messages"]
-    elif info.name != state["current_node"]:
-        if state["deliverables"].get("_inherit_history", False):
-            # ==> 跳转：继承源节点的消息历史（游标不重置，从源节点起点继续看）
-            start_idx = state["deliverables"].get("start_msg_index", 0)
-            current_node_messages = state["messages"][start_idx:]
-            state["deliverables"]["_inherit_history"] = False  # 一次性继承，用完清除
-        else:
-            # -> 跳转（默认）：重置游标，本节点从空开始（现状零继承）
-            state["deliverables"]["start_msg_index"] = len(state["messages"])
-            current_node_messages = []
+    # 历史窗口 / 上下文模式（NodeStart context 决定本节点可见消息）
+    current_node_messages: List[BaseMessage] = []
+    node_start = info.node_start
+    if node_start is not None and node_start.context == "previous_payload":
+        # previous_payload：只继承上一节点最终 payload
+        prev_payload = state["deliverables"].get("payload", "")
+        current_node_messages = (
+            [HumanMessage(content=f"[Context from previous stage]:\n{prev_payload}")] if prev_payload else []
+        )
+    elif node_start is not None and node_start.context == "executor":
+        # executor：执行 NodeStart 代码块，产出 ctx_messages（喂给 LLM 的消息列表）
+        current_node_messages = _run_context_executor(node_start, state, ctx)
+        if not current_node_messages:
+            raise RuntimeError(
+                f"Node '{info.name}': context: executor produced no ctx_messages. "
+                "The executor must set ctx_messages to a non-empty list."
+            )
     else:
-        start_idx = state["deliverables"]["start_msg_index"]
-        current_node_messages = state["messages"][start_idx:]
+        # all（缺省）：沿用现有继承游标逻辑
+        if "start_msg_index" not in state["deliverables"]:
+            state["deliverables"]["start_msg_index"] = 0
+            current_node_messages = state["messages"]
+        elif info.name != state["current_node"]:
+            if state["deliverables"].get("_inherit_history", False):
+                # ==> 跳转：继承源节点的消息历史（游标不重置，从源节点起点继续看）
+                start_idx = state["deliverables"].get("start_msg_index", 0)
+                current_node_messages = state["messages"][start_idx:]
+                state["deliverables"]["_inherit_history"] = False  # 一次性继承，用完清除
+            else:
+                # -> 跳转（默认）：重置游标，本节点从空开始（现状零继承）
+                state["deliverables"]["start_msg_index"] = len(state["messages"])
+                current_node_messages = []
+        else:
+            start_idx = state["deliverables"]["start_msg_index"]
+            current_node_messages = state["messages"][start_idx:]
 
     if info.history_window is not None:
         human_indices = [i for i, m in enumerate(current_node_messages) if isinstance(m, HumanMessage)]

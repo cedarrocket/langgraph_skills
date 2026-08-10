@@ -345,3 +345,34 @@ triggers.py 核心 → 检查点埋点 → 语法糖展开 → triggers.json 加
 **实现**：models.py（Transition.parallel + merge_dicts/last_wins reducer）、parser.py（Parallel 前缀 + 拆分）、nodes.py（next_state 列表 + generic_router 原样返回）、parser.py validator（收敛检查）。测试 test_parallel.py（7 个）。
 
 **未来**：动态并行（Send API，map-reduce 场景如"每段一个 worker"）在此机制上扩展；subagent 类型（§7.7）依赖它。
+
+### 7.9 节点钩子：NodeStart / NodeEnd（✅ 已实现）
+
+**定位**：把 LangGraph 的"节点函数体自管输入"DSL 化。**entry/pre_node ≈ turn_start**（节点入口），**NodeEnd/post_node ≈ turn_end**（节点出口）。图级介入点（Start/End 区块）未来补。
+
+**语法**：
+```markdown
+## [NodeStart]
+- **context**: all                  # all(缺省,全部历史) | previous_payload | executor
+- **on**: context_length_exceeded(5000) :=> compact   # 内置谓词/ pyfunction:/ trigger:
+## [Transitions]                   # 唯一跳出出口，signal 名匹配 Condition 列
+| Condition | Next Node |
+| compact   | Compact   |
+## [NodeEnd]
+- **on**: loop_count_exceeded(3) :=> give_up
+```
+
+**语义**：
+- `on: <检测器> :=> <signal>`：命中抛 signal → 进 Transitions 按 signal 路由。NodeStart 命中 = 跳过本次 LLM 执行；NodeEnd 命中 = 覆盖 next_state
+- signal 名必须与 Transitions 表格 Condition 列一致（validator 检查，无匹配 warning 忽略）
+- 检测器三形态：内置谓词（context_length_exceeded/loop_count_exceeded/error_flag/tool_failed，白名单可扩展）/ `pyfunction: path` / `trigger: rules.json`
+- **context 三模式**：all（缺省全量）/ previous_payload（只继承上一节点最终 payload）/ executor（执行 NodeStart 代码块产出 ctx_messages，空产出报错）
+- **NodeEnd 可读不可写上下文**：不提供 context 字段（解析报错）；要动上下文只能抛 signal 调子图
+- 谓词一律函数糖（不做表达式解析，`>`/`<` 不引入；所有解析交给外部 Python）
+
+**设计结论**：
+- 上下文是"输入"，NodeStart 管；输出/跳转 NodeEnd 管，职责分离
+- trigger 检查点（pre_llm/post_node）被 NodeStart/NodeEnd 的 on: 吸收；trigger.json 保留为 `trigger:` 引用
+- `max_context_length` 保留为 `context_length_exceeded(n)` 的向后兼容糖（未来可能废除）
+
+**实现**：models.py（NodeHook/OnCondition）、parser.py（区块解析 + 谓词白名单）、executors.py（context 三模式构造）、nodes.py（on 求值 + signal 对接）。测试 test_node_hooks.py（12 个）。

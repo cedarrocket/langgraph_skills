@@ -24,11 +24,21 @@ from langgraph_skills.models import (
     RESERVED_OUTPUT,
     CompiledSkill,
     InputOption,
+    NodeHook,
     NodeInfo,
+    OnCondition,
     SubGraphInfo,
     ToolInfo,
     Transition,
 )
+
+# 内置谓词白名单（on: 条件检测器；可扩展，复杂逻辑走 pyfunction/trigger）
+_PREDICATE_WHITELIST = {
+    "context_length_exceeded",  # (n)：messages 总长度超 n
+    "loop_count_exceeded",  # (n)：loop 计数超 n
+    "error_flag",  # (): 错误标志位
+    "tool_failed",  # (): 工具调用失败
+}
 
 # 顶层 section 类型（key 转小写后匹配）
 _SECTION_CONFIG = "config"
@@ -260,6 +270,111 @@ def _parse_output_schema(body_text: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _parse_on_condition(item: str) -> OnCondition:
+    """解析一行 `- **on**: <检测器> :=> <signal>`。
+
+    检测器三种形态：
+      - 内置谓词：context_length_exceeded(5000) / loop_count_exceeded(3) / error_flag()
+      - pyfunction: ./path.py
+      - trigger: ./rules.json
+    返回 OnCondition（kind/arg/signal）；解析失败抛 ParseError。
+    """
+    item = item.strip()
+    # 去掉行首的 `- **on**: ` 前缀
+    if item.startswith("**on**:"):
+        item = item[len("**on**:"):].strip()
+    elif item.startswith("on:"):
+        item = item[len("on:"):].strip()
+
+    if ":=>" not in item:
+        raise ParseError(f"on: condition missing `:=> signal`: {item!r}")
+    left, signal = item.split(":=>", 1)
+    left = left.strip()
+    signal = signal.strip()
+    if not signal:
+        raise ParseError(f"on: condition missing signal name: {item!r}")
+
+    # 外部引用形态：pyfunction: path / trigger: path
+    if left.startswith("pyfunction:"):
+        return OnCondition(kind="pyfunction", arg=left[len("pyfunction:"):].strip(), signal=signal)
+    if left.startswith("trigger:"):
+        return OnCondition(kind="trigger", arg=left[len("trigger:"):].strip(), signal=signal)
+
+    # 内置谓词形态：name(arg) / name()
+    func_match = re.match(r"^([a-z_]+)\(\s*([^)]*)\s*\)$", left)
+    if func_match:
+        name, arg_str = func_match.group(1), func_match.group(2).strip()
+        if name not in _PREDICATE_WHITELIST:
+            raise ParseError(
+                f"Unknown predicate '{name}' in on: condition. Available: {sorted(_PREDICATE_WHITELIST)}"
+            )
+        arg: Any = None
+        if arg_str:
+            try:
+                arg = int(arg_str)
+            except ValueError:
+                arg = arg_str
+        # kind 直接存谓词名（context_length_exceeded 等），便于求值
+        return OnCondition(kind=name, arg=arg, signal=signal)
+
+    raise ParseError(f"Invalid on: condition syntax: {item!r}")
+
+
+def _parse_node_hook(body_lines: List[str], is_start: bool) -> NodeHook:
+    """解析 `## [NodeStart]` / `## [NodeEnd]` 区块体。
+
+    内容：
+      - `- **context**: all|previous_payload|executor`（仅 NodeStart）
+      - `- **on**: <检测器> :=> <signal>`（任意多行）
+      - 可选 ```python 代码块（executor）
+    """
+    hook = NodeHook()
+    executor_lines: List[str] = []
+    in_code = False
+
+    for line in body_lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if stripped.startswith("```"):
+            in_code = not in_code
+            continue
+
+        if in_code:
+            executor_lines.append(line)
+            continue
+
+        if stripped.startswith(("-", "*", "+")):
+            item = stripped[1:].strip()
+            if ":" in item:
+                k, v = item.split(":", 1)
+                k = k.strip().replace("**", "").lower()
+                v = v.strip().strip('"').strip("'")
+                if k == "context":
+                    if not is_start:
+                        raise ParseError("context is only allowed in ## [NodeStart] (NodeEnd cannot touch context).")
+                    if v not in ("all", "previous_payload", "executor"):
+                        raise ParseError(f"Unknown context mode '{v}'. Available: all / previous_payload / executor")
+                    hook.context = v
+                elif k == "on":
+                    hook.conditions.append(_parse_on_condition(item))
+                elif k == "src":
+                    hook.src = v
+                elif k == "executor":
+                    hook.src = v
+            continue
+
+        # 非列表行、非代码块：视为注释/忽略
+
+    if executor_lines:
+        hook.executor = "\n".join(executor_lines).strip()
+
+    if hook.context == "executor" and not (hook.executor or hook.src):
+        raise ParseError("context: executor requires a Python executor (inline code block or `- **src**: path`).")
+    return hook
+
+
 def parse_node_body(node_name: str, body_text: str) -> NodeInfo:
     """解析单个 `# [Node]` 的状态体，返回 NodeInfo。"""
     lines = body_text.splitlines()
@@ -278,6 +393,8 @@ def parse_node_body(node_name: str, body_text: str) -> NodeInfo:
     instructions_lines: List[str] = []
     transitions: List[Transition] = []
     output_schema: Optional[Dict[str, Any]] = None
+    node_start: Optional[NodeHook] = None
+    node_end: Optional[NodeHook] = None
 
     mode = "meta"  # meta | instructions | sub_section
     current_sub_sec: Optional[str] = None
@@ -294,6 +411,10 @@ def parse_node_body(node_name: str, body_text: str) -> NodeInfo:
                     transitions.extend(parse_transitions(current_sub_body))
                 elif sec_name in ("output json", "output schema", "output"):
                     output_schema = _parse_output_schema("\n".join(current_sub_body))
+                elif sec_name == "nodestart":
+                    node_start = _parse_node_hook(current_sub_body, is_start=True)
+                elif sec_name == "nodeend":
+                    node_end = _parse_node_hook(current_sub_body, is_start=False)
             current_sub_sec = sub_match.group(1).strip()
             current_sub_body = []
             mode = "sub_section"
@@ -350,6 +471,10 @@ def parse_node_body(node_name: str, body_text: str) -> NodeInfo:
             transitions.extend(parse_transitions(current_sub_body))
         elif sec_name in ("output json", "output schema", "output"):
             output_schema = _parse_output_schema("\n".join(current_sub_body))
+        elif sec_name == "nodestart":
+            node_start = _parse_node_hook(current_sub_body, is_start=True)
+        elif sec_name == "nodeend":
+            node_end = _parse_node_hook(current_sub_body, is_start=False)
 
     return NodeInfo(
         name=node_name,
@@ -364,6 +489,8 @@ def parse_node_body(node_name: str, body_text: str) -> NodeInfo:
         history_window=metadata["history_window"],
         max_loops=metadata["max_loops"],
         max_context_length=metadata["max_context_length"],
+        node_start=node_start,
+        node_end=node_end,
     )
 
 

@@ -11,6 +11,7 @@ safe_input / run_skill 通过参数注入，避免循环依赖（由 runner 在�
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any, Callable, Dict, List, Optional
 
@@ -24,7 +25,7 @@ from langgraph_skills.config import (
     Settings,
 )
 from langgraph_skills.executors import ExecutorContext, get_executor
-from langgraph_skills.models import AgentState, NodeInfo
+from langgraph_skills.models import AgentState, NodeHook, NodeInfo, OnCondition
 from langgraph_skills.tools import ToolRegistry
 from langgraph_skills.triggers import (
     CHECKPOINT_POST_NODE,
@@ -108,6 +109,34 @@ def create_node(
             raise RuntimeError(
                 f"Node '{node_info.name}': safe_input/run_skill must be injected by graph.build_graph / runner."
             )
+
+        # NodeStart 钩子：on: 条件求值 → 命中则抛 signal，跳过本次执行
+        node_start_signal = _first_fired_signal(node_info.node_start, _condition_scope(node_info, state))
+        if node_start_signal:
+            target = _resolve_signal_target(node_info, node_start_signal)
+            if target:
+                print(
+                    f"  [NodeStart] condition '{node_start_signal}' fired -> skipping execution, routing to '{target}'"
+                )
+                return {
+                    "next_state": target,
+                    "deliverables": deliverables,
+                    "loop_count": current_loops,
+                    "max_loops": new_max_loops,
+                    "current_node": node_info.name,
+                    "spans": [{
+                        "node": node_info.name,
+                        "loop": current_loops,
+                        "type": "node_start_signal",
+                        "signal": node_start_signal,
+                        "start": msg_start_idx,
+                        "end": msg_start_idx,
+                    }],
+                }
+            else:
+                print(
+                    f"  [Warning] NodeStart signal '{node_start_signal}' has no matching condition in ## [Transitions]; ignoring."
+                )
 
         ctx = ExecutorContext(
             node_info=node_info,
@@ -195,6 +224,18 @@ def create_node(
                 },
             )
 
+        # NodeEnd 钩子：on: 条件求值 → 命中则覆盖 next_state（signal 对应 Transitions 目标）
+        node_end_signal = _first_fired_signal(node_info.node_end, _condition_scope(node_info, state))
+        if node_end_signal:
+            target = _resolve_signal_target(node_info, node_end_signal)
+            if target:
+                print(f"  [NodeEnd] condition '{node_end_signal}' fired -> overriding route to '{target}'")
+                next_state = target
+            else:
+                print(
+                    f"  [Warning] NodeEnd signal '{node_end_signal}' has no matching condition in ## [Transitions]; ignoring."
+                )
+
         ret: Dict[str, Any] = {
             "next_state": next_state,
             "deliverables": deliverables,
@@ -259,6 +300,84 @@ def generic_router(state: AgentState):
 def tool_router(state: AgentState):
     """ToolNode 执行完毕后，通用路由回原来的触发节点，形成 ReAct 闭环。"""
     return state.get("current_node") or END
+
+
+def _condition_scope(node_info: NodeInfo, state: AgentState) -> Dict[str, Any]:
+    """on: 条件求值的作用域变量。"""
+    msgs = state.get("messages", [])
+    return {
+        "context_length": sum(len(getattr(m, "content", "") or "") for m in msgs),
+        "loop_count": state.get("loop_count", 0),
+        "current_node": state.get("current_node", ""),
+        "next_state": state.get("next_state", ""),
+        "deliverables": state.get("deliverables", {}),
+        "messages": msgs,
+        "error_flag": state.get("error_flag", False),
+        "max_loops": state.get("max_loops", 10),
+    }
+
+
+def _eval_predicate(cond: OnCondition, scope: Dict[str, Any]) -> bool:
+    """内置谓词求值。"""
+    name, arg = cond.kind, cond.arg
+    if name == "context_length_exceeded":
+        return scope.get("context_length", 0) > (arg or 0)
+    if name == "loop_count_exceeded":
+        return scope.get("loop_count", 0) > (arg or 0)
+    if name == "error_flag":
+        return bool(scope.get("error_flag", False))
+    if name == "tool_failed":
+        from langchain_core.messages import ToolMessage
+
+        return any(
+            isinstance(m, ToolMessage) and getattr(m, "content", "").startswith("Error:")
+            for m in scope.get("messages", [])
+        )
+    return False
+
+
+def _eval_on_condition(cond: OnCondition, scope: Dict[str, Any]) -> bool:
+    """求值一个 on: 条件（含 pyfunction / trigger 外部引用）。"""
+    if cond.kind == "pyfunction":
+        from langgraph_skills.triggers import _eval_pyfunction
+
+        try:
+            return _eval_pyfunction(cond.arg or "", scope)
+        except Exception:
+            return False
+    if cond.kind == "trigger":
+        # trigger: 引用外部 trigger.json —— 复用 trigger 加载与求值
+        from langgraph_skills.triggers import load_triggers_from_config
+
+        try:
+            config: Dict[str, Any] = {}
+            if os.path.exists(cond.arg or ""):
+                with open(cond.arg, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+            loaded = load_triggers_from_config(config)
+            return any(evaluate_condition(t, scope) for t in loaded)
+        except Exception:
+            return False
+    # 内置谓词：kind 即谓词名（context_length_exceeded / loop_count_exceeded / error_flag / tool_failed）
+    return _eval_predicate(cond, scope)
+
+
+def _first_fired_signal(node_hook: Optional[NodeHook], scope: Dict[str, Any]) -> Optional[str]:
+    """求值钩子区块的 on: 条件列表，返回第一个命中的 signal；无命中返回 None。"""
+    if not node_hook or not node_hook.conditions:
+        return None
+    for cond in node_hook.conditions:
+        if _eval_on_condition(cond, scope):
+            return cond.signal
+    return None
+
+
+def _resolve_signal_target(node_info: NodeInfo, signal: str) -> Optional[str]:
+    """signal -> Transitions 表格 Condition 列匹配，返回目标节点名；无匹配返回 None。"""
+    for t in node_info.transitions:
+        if t.condition and t.condition.strip().lower() == signal.strip().lower():
+            return t.next
+    return None
 
 
 def _pre_node_context_redirect(node_info: NodeInfo, state: AgentState) -> Optional[str]:

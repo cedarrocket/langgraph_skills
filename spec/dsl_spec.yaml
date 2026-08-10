@@ -154,6 +154,34 @@ sections:
       output:
         headings: ["## [Output JSON]", "## [Output Schema]", "## [Output]"]
         description: "输出 JSON Schema 约束；内容为 JSON 文本（可带 ```json 围栏）"
+      node_start:
+        heading: "## [NodeStart]"
+        description: "节点入口钩子（≈ turn_start / pre_node 位置）：管理上下文输入 + on: 条件跳转。executor 先于 LLM 执行"
+        fields:
+          context:
+            enum: [all, previous_payload, executor]
+            default: all
+            description: "上下文继承模式：all（全部历史，缺省）/ previous_payload（只继承上一节点最终 payload）/ executor（执行 executor 产出 ctx_messages）"
+          on:
+            syntax: "`- **on**: <检测器> :=> <signal>`"
+            description: "条件开关：命中则抛 signal，跳过本次 LLM 执行，进 ## [Transitions] 按 signal 路由"
+            forms:
+              predicate: "内置谓词：context_length_exceeded(n) / loop_count_exceeded(n) / error_flag() / tool_failed()"
+              pyfunction: "`pyfunction: ./path.py`（外部函数，返回 True 即触发）"
+              trigger: "`trigger: ./rules.json`（复用 trigger.json 配置）"
+          executor:
+            description: "可选 Python 代码块（或 `- **src**: path`）：context: executor 时必写且 ctx_messages 不得为空（空则报错）。注入 state/messages/deliverables/spans/get_payload"
+          note: "signal 名必须与 ## [Transitions] 表格 Condition 列一致（validator 检查）；无匹配时 warning 忽略"
+      node_end:
+        heading: "## [NodeEnd]"
+        description: "节点出口钩子（≈ turn_end / post_node 位置）：on: 条件覆盖路由。不可改写上下文（可读；要动上下文只能抛 signal 调子图）"
+        fields:
+          on:
+            syntax: "`- **on**: <检测器> :=> <signal>`"
+            description: "命中则覆盖 next_state（signal 对应 Transitions 目标）"
+          executor:
+            description: "可选 Python 代码块（或 src）：可读上下文不可写；可调用 signal(\"name\") 抛 condition 进 Transitions"
+          note: "NodeEnd 不允许 context 字段（不得触碰上下文输入）"
 
   # 子图声明（图中图，内部可含 ## [Node]）
   subgraph:
