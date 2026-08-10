@@ -46,7 +46,6 @@ if m:
 | give_up    | GiveUp    |
 | tool_call  | ToolExec  |
 | Default    | Input     |
-
 # [Node] Input
 - **type**: script
 - **src**: scripts/input.py
@@ -80,7 +79,7 @@ if m:
 
 ```python
 # 子图结束：next_state 指向主图 Input，由父图 _sub_after_ 路由回交互
-deliverables["_child_messages"] = messages[-1:]
+# 工具结果消息已由 tool_exec.py 追加进 messages（LangGraph 默认合并回父图）
 transition_to("Input", deliverables.get("tool_result", ""))
 ```
 

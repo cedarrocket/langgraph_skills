@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph_skills.graph import build_graph
 from langgraph_skills.models import AgentState, OnCondition
 from langgraph_skills.parser import ParseError, parse_compiled_skill
+from langgraph_skills.tools import ToolRegistry
 
 
 def _write(tmp_path, content, name="skill.md"):
@@ -388,3 +389,65 @@ def test_resolve_signal_target(tmp_path):
     info = c.nodes["A"]
     assert _resolve_signal_target(info, "compact") == "Compact"
     assert _resolve_signal_target(info, "nope") is None
+
+
+def test_context_all_ignores_cursor(tmp_path):
+    """context: all 应看到全部历史（忽略 start_msg_index 游标）。"""
+    from langgraph_skills.executors import ExecutorContext
+
+    path = _write(
+        tmp_path,
+        """# [Node] B
+- **type**: llm
+
+检查。
+
+## [NodeStart]
+- **context**: all
+
+## [Transitions]
+- Default -> Done
+
+# [Node] Done
+- **is_final**: true
+""",
+    )
+    c = parse_compiled_skill(path)
+    info = c.nodes["B"]
+
+    state = AgentState(
+        messages=[
+            HumanMessage(content="早期消息"),
+            AIMessage(content="工具结果"),
+            HumanMessage(content="新输入"),
+        ],
+        global_instructions="g", state_instructions="",
+        deliverables={"start_msg_index": 2},  # 游标指向最后，all 应忽略
+        spans=[], current_node="Input", next_state="", loop_count=0, max_loops=10,
+    )
+    ctx = ExecutorContext(
+        node_info=info, state=state, tools=ToolRegistry(),
+        safe_input=lambda p: "", run_skill=lambda *a, **k: {},
+        settings=type("S", (), {"api_key": None})(),
+    )
+    seen = []
+
+    class FakeLLM:
+        def bind_tools(self, *a, **k):
+            return self
+
+        def invoke(self, msgs):
+            seen.extend(str(m.content) for m in msgs)
+            return AIMessage(content="ok")
+
+    import langgraph_skills.executors as ex_mod
+
+    orig = ex_mod.ChatOpenAI
+    ex_mod.ChatOpenAI = lambda *a, **k: FakeLLM()
+    try:
+        ex_mod.execute_llm(ctx)
+    finally:
+        ex_mod.ChatOpenAI = orig
+    # all 模式应看到早期消息 + 工具结果（忽略游标 start_msg_index=2）
+    assert any("早期消息" in s for s in seen)
+    assert any("工具结果" in s for s in seen)

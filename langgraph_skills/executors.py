@@ -382,7 +382,10 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
     # 历史窗口 / 上下文模式（NodeStart context 决定本节点可见消息）
     current_node_messages: List[BaseMessage] = []
     node_start = info.node_start
-    if node_start is not None and node_start.context == "previous_payload":
+    if node_start is not None and node_start.context == "all":
+        # all：全部历史消息（忽略游标）
+        current_node_messages = state["messages"]
+    elif node_start is not None and node_start.context == "previous_payload":
         # previous_payload：只继承上一节点最终 payload
         prev_payload = state["deliverables"].get("payload", "")
         current_node_messages = (

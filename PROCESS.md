@@ -428,3 +428,11 @@ LLM 节点（决策）→ 输出结构化指令 JSON 到 payload
 - 多轮交互 + LLM 决策输出工具指令 JSON → `NodeEnd executor` 检测 `{` 前缀抛 `tool_call` signal → 跳工具子图 → 子图内嵌 Python 执行（安全边界 `/tmp/opencode/pi_work`）→ 回传 → Report 汇报 → 回 Agent 下一轮
 - 实测（真实 key）：读取 ✓（文件内容回传）、写入 ✓（note.txt 真实创建 `wrote 5 chars`）、追加 ✓（`appended 6 chars`）、越界拒绝 ✓（LLM 决策层拒绝 + 子图边界双保险）
 - **结论：子图方案下小型 pi agent 类似物可行**。LLM 只在决策点（输出指令），执行确定性 + 安全边界，解决了自由 ReAct 的模型驱动不稳。
+
+**语义重定义（关键修正）**：
+- `->`（默认）：调用子图**不继承**父图上下文；子图结果消息**默认合并回传**父图（LangGraph add_messages 默认行为，无需任何标记）
+- `==>`：调用子图继承父图上下文；结果同样合并回传
+- `==> X <==`：子图结果**覆盖**父图 messages（压缩场景专用）
+- 修正前混淆：把"结果回传（默认该有）"与"上下文继承（我们加的）"绑在 `==>` 上；`_child_messages` 协议强行覆盖模拟默认合并
+- 子图内 code/script 节点 `messages.append(AIMessage(content=...))`（引用修改）→ 默认合并回传父图（实测验证）
+- **`context: all` bug**：声明 all 却走 start_msg_index 游标逻辑，导致只看到游标后消息（工具结果被截断）。修复：all 分支显式返回全部 messages（忽略游标）。回归测试 test_node_hooks.py::test_context_all_ignores_cursor

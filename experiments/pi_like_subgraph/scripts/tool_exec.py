@@ -50,8 +50,9 @@ deliverables["tool_attempts"] = attempts
 
 # 自我修正：出错且未超上限 → 回 RetryFix（LLM 看错误修正）；否则子图结束返回主图
 if result.startswith("Error:") and attempts < 2:
-    deliverables["_child_messages"] = messages[-1:]
+    messages.append(AIMessage(content=f"[工具执行错误] {result}"))
     transition_to("RetryFix", f"上次指令: {raw}\n执行错误: {result}\n请修正工具指令（只输出新 JSON）。")
 else:
-    deliverables["_child_messages"] = messages[-1:]
+    # 工具结果作为消息追加：LangGraph 默认合并回传父图（-> 调用子图）
+    messages.append(AIMessage(content=f"[工具结果] {result}"))
     transition_to("Done", result)
