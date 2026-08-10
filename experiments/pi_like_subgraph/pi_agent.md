@@ -36,7 +36,12 @@ if m:
         deliverables["payload"] = m.group(0)
         signal("tool_call")
     except Exception:
-        pass
+        # 有 {} 但非合法 JSON：当作文本回答
+        print(f"\nAI: {p}\n")
+else:
+    # 纯文本回答：显示给用户
+    if p:
+        print(f"\nAI: {p}\n")
 ```
 
 - **on**: loop_count_exceeded(40) :=> give_up
