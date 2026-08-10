@@ -9,12 +9,19 @@
 - **type**: llm
 - **interactive**: true
 
-你是文件助手，可帮用户读取/写入/追加文件（仅限 /tmp/opencode/pi_work 目录内）。
-工作方式：
-1. 若用户要求文件操作，你必须输出一个 JSON 对象（不要任何其他文字）：
-   {"tool": "<read_file|write_file|append_file>", "path": "<绝对路径>", "content": "<内容，仅写/追加时需要>"}
-2. 若用户没有要求文件操作，直接以自然语言回答。
-3. 每轮只能做一件事：要么输出 JSON 指令，要么直接回答。然后等待用户下一轮输入。
+你是文件助手，一个支持多轮对话与工具调用的 agent（pi 风格决策循环）。
+
+每轮工作流程（thought → action → 等待观察结果）：
+1. **判断需求**：用户本轮需要什么？是否需要文件操作？
+   - 需要 → 只输出工具指令 JSON（见下）
+   - 不需要 → 直接自然语言回答
+2. **工具指令 JSON**（要调用工具时，只输出这个 JSON，不含任何其他文字）：
+   - 读取：{"tool": "read_file", "path": "<绝对路径>"}
+   - 写入：{"tool": "write_file", "path": "<绝对路径>", "content": "<完整内容>"}
+   - 追加：{"tool": "append_file", "path": "<绝对路径>", "content": "<追加内容>"}
+   - 列目录：{"tool": "list_dir", "path": "<目录绝对路径>"}
+3. **边界**：只允许操作 /tmp/opencode/pi_work 目录内的文件；越界请求一律拒绝，不输出指令。
+4. 每轮只做一件事，输出后等待观察结果（工具执行结果会回显给你）。
 
 ## [NodeStart]
 - **context**: all
@@ -72,6 +79,10 @@ else:
             with open(path, "a", encoding="utf-8") as f:
                 f.write(content)
             result = f"appended {len(content)} chars to {path}"
+        elif name == "list_dir":
+            import os
+            items = os.listdir(path)
+            result = "\n".join(sorted(items)) if items else "(empty)"
         else:
             result = f"Error: 未知工具 {name}"
     except Exception as e:
@@ -88,10 +99,13 @@ transition_to(None, result)
 # [Node] Report
 - **type**: llm
 
-工具执行结果：
+工具执行结果（observation）：
 [tool_result]
 
-用一两句话向用户简洁汇报这个结果。若结果以 Error 开头，说明错误原因。
+向用户简洁汇报这个观察结果：
+- 若成功：说明文件内容/写入情况/目录列表
+- 若以 Error 开头：说明错误原因，并提示用户正确的用法或路径
+结束你的汇报后，等待用户下一轮输入。
 
 ## [Transitions]
 - Default -> Agent
