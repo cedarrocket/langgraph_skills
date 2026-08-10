@@ -89,12 +89,24 @@ def _compile_subgraph(
             run_skill=run_skill,
             settings=settings,
             triggers=triggers,
+            is_subgraph=True,
         )
 
     # 形态 A：内部节点
     sub_dict = sub.nodes
     if not sub_dict:
         raise ValueError(f"SubGraph '{sub.name}' has no nodes and no src.")
+
+    # 校验子图内部节点（transition_to 声明检查、悬空目标等）
+    sub_subgraph_names = {n for n, i in sub_dict.items() if i.node_type == "subgraph" and i.subgraph}
+    sub_errors = validate_node_graph(
+        sub_dict,
+        subgraph_names=sub_subgraph_names,
+        allow_last_implicit_end=True,
+        strict_transitions=True,
+    )
+    if sub_errors:
+        raise ValueError(f"SubGraph '{sub.name}':\n" + "\n".join(sub_errors))
 
     workflow = StateGraph(AgentState)
     for name, info in sub_dict.items():
@@ -241,6 +253,7 @@ def build_graph(
     settings: Optional[Settings] = None,
     triggers: Optional[List[Trigger]] = None,
     on_token: Optional[Callable[[str], None]] = None,
+    is_subgraph: bool = False,
 ):
     """编译 Markdown Skill 并返回标准的 LangGraph CompiledStateGraph 实例。
 
@@ -253,7 +266,13 @@ def build_graph(
     # 加载工具边界 hooks（hooks.json，全局 + 项目拼接）
     tool_hooks = load_hooks()
 
-    validation_errors = validate_node_graph(node_dict, subgraph_names=set(compiled.subgraphs.keys()))
+    # is_subgraph（src 简写子图独立文件）：节点可跳主图节点（Agent 等），
+    # 跳转目标存在性/声明由主图上下文校验，独立文件放行
+    validation_errors = validate_node_graph(
+        node_dict,
+        subgraph_names=set(compiled.subgraphs.keys()),
+        skip_transition_target_check=is_subgraph,
+    )
     if validation_errors:
         err_msg = "\n".join(validation_errors)
         raise ValueError(err_msg)

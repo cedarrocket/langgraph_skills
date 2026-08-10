@@ -20,6 +20,8 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 from langgraph_skills.models import (
+    NODE_CODE,
+    NODE_SCRIPT,
     RESERVED_INPUT,
     RESERVED_OUTPUT,
     CompiledSkill,
@@ -221,6 +223,26 @@ def parse_markdown_list_transitions(lines: list) -> List[Transition]:
                         condition=cond,
                         next=next_state,
                         feedback=feedback,
+                        require_approval=require_approval,
+                        inherit_history=inherit_history,
+                        replace_messages=replace_messages,
+                    )
+                )
+                continue
+
+            # 其他条件前缀（如 `On error -> Target`）：前缀作为 condition 文本，
+            # 供 NodeEnd/on: signal 匹配（Condition 列值），也是合法跳转声明
+            left_side = item.split(arrow, 1)[0].strip()
+            right_side = item.split(arrow, 1)[1].strip()
+            if replace_messages:
+                right_side = right_side.replace("<==", "").strip()
+            require_approval = "[require approval]" in right_side.lower() or "(require approval)" in right_side.lower()
+            next_state = right_side.split("(")[0].split("[")[0].strip()
+            if next_state:
+                transitions.append(
+                    Transition(
+                        condition=left_side or None,
+                        next=next_state,
                         require_approval=require_approval,
                         inherit_history=inherit_history,
                         replace_messages=replace_messages,
@@ -710,10 +732,88 @@ def parse_compiled_skill(filepath: str, strict: bool = False) -> CompiledSkill:
     return compiled
 
 
-def validate_node_graph(node_dict: Dict[str, NodeInfo], subgraph_names: Optional[set] = None) -> List[str]:
+def _extract_transition_targets(code_text: str) -> List[str]:
+    """从代码文本中提取 transition_to("X") 的目标（字符串字面量）。
+
+    支持：
+      - transition_to("X") / transition_to("X", "payload")
+      - transition_to(["A", "B"], ...) fan-out 列表
+    忽略 None（无跳转）。
+    """
+    targets: List[str] = []
+    if not code_text:
+        return targets
+    # 字符串字面量目标（双引号或单引号）
+    for m in re.finditer(r'transition_to\(\s*(["\'])([^"\']+)\1', code_text):
+        targets.append(m.group(2).strip())
+    # 列表形式 [A, B, ...]
+    for m in re.finditer(r'transition_to\(\s*\[([^\]]*)\]', code_text):
+        inner = m.group(1)
+        targets.extend(t.strip().strip('"').strip("'") for t in inner.split(",") if t.strip())
+    return targets
+
+
+def _check_node_transition_declared(
+    info: NodeInfo,
+    subgraph_names: set,
+    node_names: List[str],
+    strict: bool = False,
+) -> List[str]:
+    """校验 code/script 节点里 transition_to 的目标已在节点 transitions 表声明。
+
+    表外跳转（如 Parse 里 transition_to("RetryFix") 但表里没写 RetryFix）是隐藏 bug 源，
+    提前在静态校验暴露。跳过无法读取的 script 文件（不阻断）。
+
+    strict=True（子图内节点）：目标必须声明在 ## [Transitions] 表或为子图名。
+    strict=False（主图节点）：允许跳转任意主图节点（表是 LLM 提示 + signal 匹配，不限制运行流转）。
+    """
+    errors: List[str] = []
+    if info.node_type not in (NODE_CODE, NODE_SCRIPT):
+        return errors
+
+    code_text = ""
+    if info.node_type == NODE_CODE:
+        code_text = info.instructions or ""
+    elif info.node_type == NODE_SCRIPT and info.src:
+        try:
+            with open(info.src, "r", encoding="utf-8") as f:
+                code_text = f.read()
+        except Exception:
+            return errors  # 文件读不到，跳过该校验（不阻断）
+
+    targets = _extract_transition_targets(code_text)
+    if not targets:
+        return errors
+
+    declared = {t.next.strip() for t in info.transitions}
+    declared.add("end")
+    declared.add("finish")
+    for target in targets:
+        tgt = target.lower() if target.lower() in ("end", "finish") else target
+        if tgt in declared or target in subgraph_names:
+            continue
+        if not strict and target in node_names:
+            continue  # 主图：跳任意主图节点合法
+        errors.append(
+            f"Node '{info.name}' calls transition_to({target!r}) but it is not declared in "
+            f"'## [Transitions]'. Declared targets: {sorted(declared - {'end', 'finish'}) or 'none'}"
+        )
+    return errors
+
+
+def validate_node_graph(
+    node_dict: Dict[str, NodeInfo],
+    subgraph_names: Optional[set] = None,
+    allow_last_implicit_end: bool = False,
+    strict_transitions: bool = False,
+    skip_transition_target_check: bool = False,
+) -> List[str]:
     """静态校验节点图（语义分析）。
 
     subgraph_names：已声明的子图名集合；指向子图的 transition 不算悬空。
+    allow_last_implicit_end：允许最后一个非 final 节点隐式结束（子图内最后节点返回父图）。
+    strict_transitions：子图内节点严格要求 transition_to 目标在表中声明（主图允许跳任意节点）。
+    skip_transition_target_check：跳过 transition_to 目标校验（src 简写子图独立文件，目标由主图解析）。
     """
     errors: List[str] = []
     subgraph_names = subgraph_names or set()
@@ -740,18 +840,23 @@ def validate_node_graph(node_dict: Dict[str, NodeInfo], subgraph_names: Optional
 
     for i, (name, info) in enumerate(node_dict.items()):
         if not info.is_final and not info.transitions:
-            if i + 1 >= len(node_names):
+            if i + 1 >= len(node_names) and not allow_last_implicit_end:
                 errors.append(
                     f"Non-final node '{name}' is the last node but is missing a "
                     "'## [Transitions]' definition or 'is_final: true'."
                 )
+        # 校验 transition_to 目标已在 transitions 表声明（防表外跳转隐藏 bug）
+        if not skip_transition_target_check:
+            errors.extend(
+                _check_node_transition_declared(info, subgraph_names, node_names, strict=strict_transitions)
+            )
         for t in info.transitions:
             target = t.next.strip()
             if target.lower() in ("end", "finish"):
                 continue
             if target in subgraph_names:
                 continue  # 目标是子图节点，合法
-            if target not in node_dict:
+            if target not in node_dict and not skip_transition_target_check:
                 errors.append(f"Node '{name}' has transition targeting non-existent node '{target}'.")
 
         # fan-out 收敛检查：并行分支必须收敛到共同 join 节点，否则 join 永不触发（死等）

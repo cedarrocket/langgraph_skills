@@ -444,3 +444,11 @@ LLM 节点（决策）→ 输出结构化指令 JSON 到 payload
 **多步工具操作死循环（已修复，pi_agent）**：用户请求"创建两个文件"时，Agent 用 context: all 每次看到原始请求仍在 → 可能重复写同一文件 → 子图返回回 Agent → 又触发 tool_call → 无限循环到 loop 上限。loop 超限时模型输出 SubmitResult XML 文本 → NodeEnd 检测 { 提取 JSON → 路由冲突 → 无限 Loop limit 警告。
 **修复**：Agent NodeEnd 检测"最近消息是 [工具结果]"（子图刚返回的汇报轮）→ 不触发 tool_call（即使 payload 含 JSON），当作文本汇报。用户新输入（Input 追加 HumanMessage）后恢复决策。实测多步写文件正常（连续写 setting/novel → 汇报 → 退出）。
 **根因认知**："无状态 agent + 全量上下文"的固有缺陷——无任务完成追踪，靠模型自觉不重复。本修复是防御性缓解（汇报轮禁工具调用），根治需任务状态追踪（未来）。
+
+**pi_agent 重构（子图独立 + 校验强化）**：
+- **attempts 递增 bug**：tool_exec.py `attempts` 读 0 写回 0，`attempts < 2` 永远成立 → 出错永远跳 RetryFix → 死循环。修复 `= attempts + 1`
+- **transition_to 声明校验**：validator 扫描 code/script 里 `transition_to("X")`，X 必须在该节点 `## [Transitions]` 表声明（子图内严格；主图允许跳任意主图节点）。防表外跳转隐藏 bug（如 Parse 跳 RetryFix 但表没写）。新增 `On error -> X` 条件前缀解析
+- **子图独立**：ToolExec 独立成 `tool_subagent.md`（src 引用）。子图内所有路径汇聚到 `Exit`（is_final），`transition_to("Agent")` 返回主图。src 简写子图编译时 `is_subgraph=True` 放行"跳主图节点"（skip_transition_target_check）
+- **NodeEnd 外嵌**：Agent 的 NodeEnd Python → `scripts/agent_end.py`
+- 端到端验证：读文件 → Exit 返回 Agent → 自动汇报 ✓；多步写文件 ✓；无死循环 ✓
+- 测试：184（+src 子图返回主图、子图内 transition 声明拦截）

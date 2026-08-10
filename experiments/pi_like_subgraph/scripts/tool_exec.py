@@ -20,7 +20,6 @@ except Exception:
 
 # 重试计数：出错时最多重试 2 次（RetryFix 修正后回 Parse）
 attempts = deliverables.get("tool_attempts", 0)
-
 # 安全边界
 if not path.startswith(ALLOW_ROOT):
     result = "Error: 安全边界拒绝 - 路径在允许目录外"
@@ -46,7 +45,8 @@ else:
         result = f"Error: {e}"
 
 deliverables["tool_result"] = result
-deliverables["tool_attempts"] = attempts
+# 关键：attempts 必须递增，否则 `attempts < 2` 永远成立 → 无限重试
+deliverables["tool_attempts"] = attempts + 1
 
 # 自我修正：出错且未超上限 → 回 RetryFix（LLM 看错误修正）；否则子图结束返回主图
 if result.startswith("Error:") and attempts < 2:
@@ -55,4 +55,4 @@ if result.startswith("Error:") and attempts < 2:
 else:
     # 工具结果作为消息追加：LangGraph 默认合并回传父图（-> 调用子图）
     messages.append(AIMessage(content=f"[工具结果] {result}"))
-    transition_to("Done", result)
+    transition_to("Exit", result)

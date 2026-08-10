@@ -496,6 +496,7 @@ else:
 
 ## [Transitions]
 - Default -> Report
+- On error -> RetryFix
 
 ## [Node] RetryFix
 - **type**: code
@@ -520,3 +521,98 @@ transition_to(None, deliverables.get("tool_result", ""))
     app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
     r = _invoke(app, [HumanMessage(content="hi")], start="Start")
     assert r["deliverables"]["tool_result"] == "OK after retry"
+
+
+def test_subgraph_src_returns_to_main_node(tmp_path):
+    """src 简写子图：子图内 is_final Exit 节点可跳主图节点，子图返回后父图路由回主图。"""
+    sub = tmp_path / "tool_sub.md"
+    sub.write_text(
+        """# [Node] Parse
+- **type**: code
+
+```python
+deliverables["tool_result"] = "ok-result"
+transition_to("Exit", "ok-result")
+```
+
+## [Transitions]
+- Default -> Exit
+
+# [Node] Exit
+- **type**: code
+- **is_final**: true
+
+```python
+transition_to("Agent", deliverables.get("tool_result", ""))
+```
+""",
+        encoding="utf-8",
+    )
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **type**: code
+
+```python
+transition_to("Tool", "go")
+```
+
+## [Transitions]
+- Default -> Tool
+
+# [SubGraph] Tool
+- **src**: tool_sub.md
+
+# [Node] Agent
+- **type**: code
+- **is_final**: true
+
+```python
+transition_to(None, "agent-got-" + deliverables.get("payload", ""))
+```
+""",
+    )
+    app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
+    r = _invoke(app, [HumanMessage(content="hi")], start="A")
+    assert r["deliverables"]["payload"] == "agent-got-ok-result"
+    assert r["deliverables"]["tool_result"] == "ok-result"
+
+
+def test_subgraph_internal_transition_declared(tmp_path):
+    """子图内 transition_to 目标必须在表声明（防表外跳转），否则 build_graph 报错。"""
+    path = _write(
+        tmp_path,
+        """# [Node] A
+- **type**: code
+- **is_final**: true
+
+# [SubGraph] Sub
+## [Node] Parse
+- **type**: code
+
+```python
+transition_to("RetryFix", "x")
+```
+
+## [Transitions]
+- Default -> Done
+
+## [Node] RetryFix
+- **is_final**: true
+- **type**: code
+
+```python
+transition_to(None, "r")
+```
+
+## [Node] Done
+- **is_final**: true
+- **type**: code
+
+```python
+transition_to(None, "d")
+```
+""",
+    )
+    with pytest.raises(ValueError, match="RetryFix"):
+        build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})

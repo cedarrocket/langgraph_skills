@@ -1,6 +1,7 @@
 #!/usr/bin/env lgskills
 # 小型 pi agent 类似物（子图方案 + 代码节点交互）
-# 多轮交互由 Input(code 节点) 驱动；Agent 只做决策；工具调用走子图（Python 外嵌 + 安全边界）
+# 多轮交互由 Input(code 节点) 驱动；Agent 只做决策；工具调用走独立子图（tool_subagent.md）
+# 所有硬编码 Python 外嵌到 scripts/（input.py / agent_end.py / tool_exec.py）
 
 # [Config]
 - max_loops: 40
@@ -26,34 +27,7 @@
 - **context**: all
 
 ## [NodeEnd]
-```python
-import json as _json, re as _re
-p = str(deliverables.get("payload", "")).strip()
-
-# 若最近一条消息是工具结果（子图刚返回），本轮是"汇报轮"：
-# 即使 payload 是工具指令 JSON（重复请求），也不触发 tool_call，避免死循环。
-# 汇报完成后回 Input 等用户新输入，新输入到达后才恢复决策。
-last_msg = messages[-1] if messages else None
-just_returned_from_tool = (
-    last_msg is not None
-    and getattr(last_msg, "content", "") is not None
-    and "[工具结果]" in str(getattr(last_msg, "content", ""))
-)
-
-m = _re.search(r"\{.*\}", p, _re.DOTALL)
-if m and not just_returned_from_tool:
-    try:
-        _json.loads(m.group(0))
-        deliverables["payload"] = m.group(0)
-        signal("tool_call")
-    except Exception:
-        # 有 {} 但非合法 JSON：当作文本回答
-        print(f"\nAI: {p}\n")
-else:
-    # 纯文本回答或汇报轮：显示给用户
-    if p:
-        print(f"\nAI: {p}\n")
-```
+- **src**: scripts/agent_end.py
 
 - **on**: loop_count_exceeded(40) :=> give_up
 
@@ -62,43 +36,17 @@ else:
 | give_up    | GiveUp    |
 | tool_call  | ToolExec  |
 | Default    | Input     |
+
 # [Node] Input
 - **type**: script
 - **src**: scripts/input.py
 
 ## [Transitions]
 - Default -> Agent
+- On quit -> GiveUp
 
 # [SubGraph] ToolExec
-## [Node] Parse
-- **type**: script
-- **src**: scripts/tool_exec.py
-
-## [Transitions]
-- Default -> Done
-
-## [Node] RetryFix
-- **type**: llm
-
-上一次工具调用失败：
-[tool_result]
-
-请根据错误修正工具调用指令。只输出一个新的工具指令 JSON（read_file / write_file / append_file / list_dir），不要任何其他文字。
-注意安全边界：只能操作 /tmp/opencode/pi_work 目录内的文件。
-
-## [Transitions]
-- Default -> Parse
-
-## [Node] Done
-- **type**: code
-- **is_final**: true
-
-```python
-# 子图结束：next_state 指向主图 Agent，由父图 _sub_after_ 路由回 Agent，
-# 让 Agent 基于工具结果自动汇报（AI: 打印）后，Default -> Input 等用户输入。
-# 工具结果消息已由 tool_exec.py 追加进 messages（LangGraph 默认合并回父图）
-transition_to("Agent", deliverables.get("tool_result", ""))
-```
+- **src**: tool_subagent.md
 
 # [Node] GiveUp
 - **is_final**: true
