@@ -423,3 +423,8 @@ LLM 节点（决策）→ 输出结构化指令 JSON 到 payload
 - 与现有 ToolNode ReAct 的关系（子图化作为"复杂/需安全边界工具"的路径，保留传统 ReAct 作为快捷路径）
 
 **当前 streaming**（§7.10 后补）：`on_token` 回调逐 token 流式输出（方案 A，闭包回调）；`_invoke_llm` stream + 聚合（tool_calls 名修正）。测试 test_streaming.py。
+
+**子图方案小型 pi agent 验证（experiments/pi_like_subgraph/pi_agent.md）**：
+- 多轮交互 + LLM 决策输出工具指令 JSON → `NodeEnd executor` 检测 `{` 前缀抛 `tool_call` signal → 跳工具子图 → 子图内嵌 Python 执行（安全边界 `/tmp/opencode/pi_work`）→ 回传 → Report 汇报 → 回 Agent 下一轮
+- 实测（真实 key）：读取 ✓（文件内容回传）、写入 ✓（note.txt 真实创建 `wrote 5 chars`）、追加 ✓（`appended 6 chars`）、越界拒绝 ✓（LLM 决策层拒绝 + 子图边界双保险）
+- **结论：子图方案下小型 pi agent 类似物可行**。LLM 只在决策点（输出指令），执行确定性 + 安全边界，解决了自由 ReAct 的模型驱动不稳。
