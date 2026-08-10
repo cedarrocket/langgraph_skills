@@ -1,7 +1,0 @@
-{
-  "hooks": {
-    "post_tool": [
-      { "matcher": "write_text|append_text", "handler": "audit_write.py" }
-    ]
-  }
-}

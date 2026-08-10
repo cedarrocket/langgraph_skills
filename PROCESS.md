@@ -402,7 +402,7 @@ triggers.py 核心 → 检查点埋点 → 语法糖展开 → triggers.json 加
 
 **背景**：实操（file-assistant agent）暴露"自由式 ReAct 模型驱动不稳"（LLM 跳步/误判工具）。结论：不靠 must_call 硬编码强制（已撤销），改为**工具调用一律走子图**。
 
-**方案**（experiments/tool_subgraph/）：
+**方案**（experiments/tool_subgraph/ 已清理，历史归档；现存活验证为 experiments/pi_like_subgraph/）：
 ```
 LLM 节点（决策）→ 输出结构化指令 JSON 到 payload
   → `==> ToolExec <==` 跳工具子图
