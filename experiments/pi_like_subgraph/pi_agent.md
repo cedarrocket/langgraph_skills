@@ -83,9 +83,10 @@ else:
 - **is_final**: true
 
 ```python
-# 子图结束：next_state 指向主图 Input，由父图 _sub_after_ 路由回交互
+# 子图结束：next_state 指向主图 Agent，由父图 _sub_after_ 路由回 Agent，
+# 让 Agent 基于工具结果自动汇报（AI: 打印）后，Default -> Input 等用户输入。
 # 工具结果消息已由 tool_exec.py 追加进 messages（LangGraph 默认合并回父图）
-transition_to("Input", deliverables.get("tool_result", ""))
+transition_to("Agent", deliverables.get("tool_result", ""))
 ```
 
 # [Node] GiveUp
