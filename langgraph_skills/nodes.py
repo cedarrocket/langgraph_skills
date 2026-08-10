@@ -228,8 +228,16 @@ def create_node(
         node_end = node_info.node_end
         node_end_signal = _first_fired_signal(node_end, _condition_scope(node_info, state))
         if node_end and (node_end.executor or node_end.src):
+            # 允许抛出的 signal = Transitions 表格 Condition 列的值（排除 Default/空）
+            allowed_signals = {
+                t.condition.strip()
+                for t in node_info.transitions
+                if t.condition and t.condition.strip().lower() not in ("default", "none", "any", "")
+            }
             # 执行 NodeEnd executor，捕获 signal() 抛出的 condition
-            emitted = _exec_hook_executor(node_end, state, ctx)
+            emitted = _exec_hook_executor(
+                node_end, state, ctx, allowed_signals=allowed_signals or None
+            )
             if emitted.get("signal") and not node_end_signal:
                 node_end_signal = emitted["signal"]
         if node_end_signal:

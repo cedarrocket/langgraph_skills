@@ -190,12 +190,15 @@ def _exec_hook_executor(
     *,
     signal_cb: Optional[Callable[[str], None]] = None,
     transition_cb: Optional[Callable[..., None]] = None,
+    allowed_signals: Optional[set] = None,
 ) -> Dict[str, Any]:
     """执行一个 NodeHook 的 executor（NodeStart/NodeEnd 共用）。
 
     - 注入环境：state/messages/deliverables/spans/get_payload/transition_to/signal
     - 产出：ctx_messages（喂给 LLM 的消息列表）或 signal("name") 抛 condition
     - signal_cb：signal() 被调用时的回调（NodeEnd 用它记录抛出的 signal）
+    - allowed_signals：允许抛出的 signal 名集合（Transitions 表格 Condition 列的值）；
+      传入后 signal() 只接受集合内的名字，否则抛 ValueError（防抛未定义 signal）
     - 返回 {"ctx_messages": [...], "signal": Optional[str]}
     """
     import os as _os
@@ -215,6 +218,11 @@ def _exec_hook_executor(
     emitted: Dict[str, Any] = {"signal": None}
 
     def _signal(name: str) -> None:
+        if allowed_signals is not None and name not in allowed_signals:
+            raise ValueError(
+                f"signal({name!r}) is not defined in ## [Transitions] Condition column. "
+                f"Available signals: {sorted(allowed_signals)}"
+            )
         emitted["signal"] = name
         if signal_cb is not None:
             signal_cb(name)

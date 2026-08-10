@@ -6,6 +6,7 @@ signal() 抛 condition 覆盖路由。
 """
 
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from langgraph_skills.graph import build_graph
@@ -247,3 +248,69 @@ transition_to(None, "done")
     app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
     r = _invoke(app, [HumanMessage(content="hi")], start="Work")
     assert r["deliverables"].get("payload") == "done"
+
+
+def test_node_end_signal_whitelist(tmp_path):
+    """signal() 只允许抛 Transitions 表格 Condition 列已有的 signal（否则报错）。"""
+    path = _write(
+        tmp_path,
+        """# [Node] Work
+- **type**: code
+
+```python
+transition_to("Done", "w")
+```
+
+## [Transitions]
+| Condition  | Next Node |
+| give_up    | GiveUp    |
+| Default    | Done      |
+
+## [NodeEnd]
+```python
+signal("no_such_signal")
+```
+
+# [Node] GiveUp
+- **is_final**: true
+
+# [Node] Done
+- **is_final**: true
+""",
+    )
+    app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
+    with pytest.raises(ValueError, match="no_such_signal"):
+        _invoke(app, [HumanMessage(content="hi")], start="Work")
+
+
+def test_node_end_signal_whitelist_ok(tmp_path):
+    """白名单内 signal 正常路由。"""
+    path = _write(
+        tmp_path,
+        """# [Node] Work
+- **type**: code
+
+```python
+transition_to("Done", "w")
+```
+
+## [Transitions]
+| Condition  | Next Node |
+| give_up    | GiveUp    |
+| Default    | Done      |
+
+## [NodeEnd]
+```python
+signal("give_up")
+```
+
+# [Node] GiveUp
+- **is_final**: true
+
+# [Node] Done
+- **is_final**: true
+""",
+    )
+    app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
+    r = _invoke(app, [HumanMessage(content="hi")], start="Work")
+    assert r["current_node"] == "GiveUp"
