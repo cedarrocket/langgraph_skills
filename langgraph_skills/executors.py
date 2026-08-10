@@ -93,6 +93,10 @@ def execute_code(ctx: ExecutorContext) -> ExecutorResult:
         "spans": ctx.state.get("spans", []),
         "get_payload": lambda: ctx.state["deliverables"].get("payload"),
         "transition_to": transition_to,
+        "safe_input": ctx.safe_input,
+        "HumanMessage": HumanMessage,
+        "AIMessage": AIMessage,
+        "SystemMessage": SystemMessage,
     }
 
     try:
@@ -128,6 +132,10 @@ def execute_script(ctx: ExecutorContext) -> ExecutorResult:
         "spans": ctx.state.get("spans", []),
         "get_payload": lambda: ctx.state["deliverables"].get("payload"),
         "transition_to": transition_to,
+        "safe_input": ctx.safe_input,
+        "HumanMessage": HumanMessage,
+        "AIMessage": AIMessage,
+        "SystemMessage": SystemMessage,
     }
 
     try:
