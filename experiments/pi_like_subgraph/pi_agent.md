@@ -28,12 +28,14 @@
 
 ## [NodeEnd]
 ```python
-# 检测 LLM 是否输出了工具指令 JSON（以 { 开头）→ 抛 tool_call signal 跳子图
-import json as _json
+# 检测 LLM 输出中的工具指令 JSON（用正则提取，兼容文本+JSON 混合）→ 抛 tool_call signal
+import json as _json, re as _re
 p = str(deliverables.get("payload", "")).strip()
-if p.startswith("{"):
+m = _re.search(r"\{.*\}", p, _re.DOTALL)
+if m:
     try:
-        _json.loads(p)
+        _json.loads(m.group(0))
+        deliverables["payload"] = m.group(0)  # 回写纯净 JSON 给子图解析
         signal("tool_call")
     except Exception:
         pass
@@ -63,6 +65,9 @@ try:
 except Exception:
     name = path = content = ""
 
+# 重试计数：出错时最多重试 2 次（RetryFix 修正后回 Parse）
+attempts = deliverables.get("tool_attempts", 0)
+
 # 安全边界：只允许在 /tmp/opencode/pi_work 内操作
 if not path.startswith("/tmp/opencode/pi_work"):
     result = "Error: 安全边界拒绝 - 路径在允许目录外"
@@ -89,14 +94,33 @@ else:
         result = f"Error: {e}"
 
 deliverables["tool_result"] = result
-deliverables["_child_messages"] = messages[-1:]
-transition_to(None, result)
+deliverables["tool_attempts"] = attempts
+
+# 自我修正：出错且未超重试上限 → 回 RetryFix（LLM 看错误修正指令）；否则 Report
+if result.startswith("Error:") and attempts < 2:
+    deliverables["_child_messages"] = messages[-1:]
+    transition_to("RetryFix", f"上次指令: {raw}\n执行错误: {result}\n请修正工具指令（只输出新 JSON）。")
+else:
+    deliverables["_child_messages"] = messages[-1:]
+    transition_to(None, result)
 ```
 
 ## [Transitions]
 - Default -> Report
 
-# [Node] Report
+## [Node] RetryFix
+- **type**: llm
+
+上一次工具调用失败：
+[tool_result]
+
+请根据错误修正工具调用指令。只输出一个新的工具指令 JSON（read_file / write_file / append_file / list_dir），不要任何其他文字。
+注意安全边界：只能操作 /tmp/opencode/pi_work 目录内的文件。
+
+## [Transitions]
+- Default -> Parse
+
+## [Node] Report
 - **type**: llm
 
 工具执行结果（observation）：

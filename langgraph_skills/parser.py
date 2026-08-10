@@ -570,13 +570,18 @@ def _parse_subgraph_body(name: str, body: str, heading: str = r"^##\s+\[([^\]]+)
         return sub
 
     # 形态 A：解析子图体内的 ## [Node] / ## [SubGraph]（递归嵌套）
+    # 注意：## [Transitions] / ## [Output] 等是节点 body 内的子区块，
+    # 不能独立成 section —— 需归入前一个 ## [Node] 的 body。
     node_infos: List[NodeInfo] = []
+    pending_node: Optional[Tuple[str, List[str]]] = None  # (node_name, accumulated_body)
     for (sec_type, sec_arg), sec_body in _split_sub_sections(body, heading):
         sec = sec_type.lower()
         if sec == _SECTION_STATE:
             if not sec_arg:
                 raise ParseError(f"Node section missing name in subgraph '{name}': `## [{sec_type}]`")
-            node_infos.append(parse_node_body(sec_arg, sec_body))
+            if pending_node is not None:
+                node_infos.append(parse_node_body(pending_node[0], "\n".join(pending_node[1])))
+            pending_node = (sec_arg, sec_body.splitlines())
         elif sec == _SECTION_SUBGRAPH:
             if not sec_arg:
                 raise ParseError(f"SubGraph section missing name in subgraph '{name}': `### [{sec_type}]`")
@@ -587,6 +592,14 @@ def _parse_subgraph_body(name: str, body: str, heading: str = r"^##\s+\[([^\]]+)
                 name=nested.name, node_type="subgraph",
                 subgraph=nested, is_final=False,
             )
+        else:
+            # 节点 body 内的子区块（Transitions / Output 等）：归入前一个节点
+            if pending_node is not None:
+                pending_node[1].extend(
+                    [f"## [{sec_type}] {sec_arg}".rstrip()] + sec_body.splitlines()
+                )
+    if pending_node is not None:
+        node_infos.append(parse_node_body(pending_node[0], "\n".join(pending_node[1])))
     _apply_sequential_fallback(node_infos)
     for info in node_infos:
         sub.nodes[info.name] = info

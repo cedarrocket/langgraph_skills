@@ -424,3 +424,99 @@ transition_to(None, "nested-done")
     app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
     r = _invoke(app, [HumanMessage(content="hi")])
     assert r["deliverables"]["payload"] == "nested-done"
+
+
+def test_subgraph_multi_node_transitions_owned(tmp_path):
+    """子图内多节点的 ## [Transitions] 必须归属各自节点（防错位）。
+
+    回归：## [Transitions] 曾被 _split_sub_sections 顶层切分，导致
+    transitions 全部错位（Parse→RetryFix 而非 Report 等）。
+    """
+    path = _write(
+        tmp_path,
+        """# [Node] Start
+- **type**: code
+- **is_final**: true
+
+# [SubGraph] Sub
+## [Node] Parse
+- **type**: code
+
+## [Transitions]
+- Default -> Report
+
+## [Node] RetryFix
+- **type**: llm
+
+## [Transitions]
+- Default -> Parse
+
+## [Node] Report
+- **type**: code
+- **is_final**: true
+""",
+    )
+    c = parse_compiled_skill(path)
+    sub = c.subgraphs["Sub"]
+    assert [t.next for t in sub.nodes["Parse"].transitions] == ["Report"]
+    assert [t.next for t in sub.nodes["RetryFix"].transitions] == ["Parse"]
+    assert sub.nodes["Report"].transitions == []
+
+
+def test_subgraph_retry_loop_runs(tmp_path):
+    """子图内 出错->RetryFix->回Parse 重试循环（确定性 code 版本）。"""
+    path = _write(
+        tmp_path,
+        """# [Node] Start
+- **type**: code
+
+```python
+deliverables["tool_attempts"] = 0
+deliverables["payload"] = "bad"
+transition_to("Sub", "go")
+```
+
+## [Transitions]
+- Default ==> Sub <==
+
+# [SubGraph] Sub
+## [Node] Parse
+- **type**: code
+
+```python
+attempts = deliverables.get("tool_attempts", 0)
+deliverables["tool_attempts"] = attempts
+if attempts == 0:
+    deliverables["tool_result"] = "Error: first attempt"
+    transition_to("RetryFix", "Error: first attempt")
+else:
+    deliverables["tool_result"] = "OK after retry"
+    transition_to(None, "ok")
+```
+
+## [Transitions]
+- Default -> Report
+
+## [Node] RetryFix
+- **type**: code
+
+```python
+deliverables["tool_attempts"] = deliverables.get("tool_attempts", 0) + 1
+transition_to("Parse", "retry")
+```
+
+## [Transitions]
+- Default -> Parse
+
+## [Node] Report
+- **type**: code
+- **is_final**: true
+
+```python
+transition_to(None, deliverables.get("tool_result", ""))
+```
+""",
+    )
+    app = build_graph(path, safe_input=lambda p: "", run_skill=lambda *a, **k: {})
+    r = _invoke(app, [HumanMessage(content="hi")], start="Start")
+    assert r["deliverables"]["tool_result"] == "OK after retry"
