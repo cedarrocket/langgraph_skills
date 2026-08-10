@@ -451,3 +451,60 @@ def test_context_all_ignores_cursor(tmp_path):
     # all 模式应看到早期消息 + 工具结果（忽略游标 start_msg_index=2）
     assert any("早期消息" in s for s in seen)
     assert any("工具结果" in s for s in seen)
+
+
+def test_node_start_executor_runs_on_llm(tmp_path):
+    """LLM 节点的 NodeStart executor 在 context: all 时也应执行（入口钩子副作用）。"""
+    from langgraph_skills.executors import ExecutorContext
+
+    path = _write(
+        tmp_path,
+        """# [Node] B
+- **type**: llm
+
+任务。
+
+## [NodeStart]
+- **context**: all
+
+```python
+print("  [NodeStart] 入口钩子执行")
+```
+
+## [Transitions]
+- Default -> Done
+
+# [Node] Done
+- **is_final**: true
+""",
+    )
+    c = parse_compiled_skill(path)
+    info = c.nodes["B"]
+    assert info.node_start.executor  # 解析出 executor
+
+    state = AgentState(
+        messages=[HumanMessage(content="hi")], global_instructions="g", state_instructions="",
+        deliverables={}, spans=[], current_node="A", next_state="", loop_count=0, max_loops=10,
+    )
+    ctx = ExecutorContext(
+        node_info=info, state=state, tools=ToolRegistry(),
+        safe_input=lambda p: "", run_skill=lambda *a, **k: {},
+        settings=type("S", (), {"api_key": None})(),
+    )
+
+    class FakeLLM:
+        def bind_tools(self, *a, **k):
+            return self
+
+        def invoke(self, msgs):
+            return AIMessage(content="ok")
+
+    import langgraph_skills.executors as ex_mod
+
+    orig = ex_mod.ChatOpenAI
+    ex_mod.ChatOpenAI = lambda *a, **k: FakeLLM()
+    try:
+        ex_mod.execute_llm(ctx)
+    finally:
+        ex_mod.ChatOpenAI = orig
+    assert ctx.state["messages"][0].content == "hi"  # all 模式未被打断

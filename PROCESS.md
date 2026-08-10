@@ -436,3 +436,7 @@ LLM 节点（决策）→ 输出结构化指令 JSON 到 payload
 - 修正前混淆：把"结果回传（默认该有）"与"上下文继承（我们加的）"绑在 `==>` 上；`_child_messages` 协议强行覆盖模拟默认合并
 - 子图内 code/script 节点 `messages.append(AIMessage(content=...))`（引用修改）→ 默认合并回传父图（实测验证）
 - **`context: all` bug**：声明 all 却走 start_msg_index 游标逻辑，导致只看到游标后消息（工具结果被截断）。修复：all 分支显式返回全部 messages（忽略游标）。回归测试 test_node_hooks.py::test_context_all_ignores_cursor
+
+**子图返回语义（实测确认）**：子图返回后，路由到的目标节点是**完整重新执行一次**（node_function 从头：NodeStart context 提取 → executor → NodeEnd），loop 计数 +1。与 LangGraph 标准一致——子图是父图的一个节点，返回后父图按边调度下一节点（全新调用），state 更新（messages 合并/deliverables）对后续可见，无"从中断处继续"概念。
+
+**NodeStart executor 语义**：NodeStart 代码块**总是执行**（入口钩子副作用），`context: executor` 时其 ctx_messages 产出作为 LLM 输入。当前 executor 仅在 LLM 节点（execute_llm context 构造）执行；code/script 节点的 NodeStart executor 未执行——待统一到 node_function 通用层（与 NodeEnd 对称），作为后续项。

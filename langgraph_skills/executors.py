@@ -383,6 +383,11 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
     # 历史窗口 / 上下文模式（NodeStart context 决定本节点可见消息）
     current_node_messages: List[BaseMessage] = []
     node_start = info.node_start
+    executor_result = None
+    # NodeStart 代码块总是执行（入口钩子副作用：日志/signal 等）；
+    # context: executor 时其产出 ctx_messages 作为本节点输入。
+    if node_start is not None and (node_start.executor or node_start.src):
+        executor_result = _run_context_executor(node_start, state, ctx)
     if node_start is not None and node_start.context == "all":
         # all：全部历史消息（忽略游标）
         current_node_messages = state["messages"]
@@ -393,8 +398,8 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
             [HumanMessage(content=f"[Context from previous stage]:\n{prev_payload}")] if prev_payload else []
         )
     elif node_start is not None and node_start.context == "executor":
-        # executor：执行 NodeStart 代码块，产出 ctx_messages（喂给 LLM 的消息列表）
-        current_node_messages = _run_context_executor(node_start, state, ctx)
+        # executor：用 NodeStart 代码块产出的 ctx_messages 作为输入
+        current_node_messages = list(executor_result) if executor_result else []
         if not current_node_messages:
             raise RuntimeError(
                 f"Node '{info.name}': context: executor produced no ctx_messages. "
