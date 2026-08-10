@@ -18,6 +18,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import END
 
 from langgraph_skills.config import Settings, load_triggers
+from langgraph_skills.debug import dprint
 from langgraph_skills.graph import build_graph, print_help
 from langgraph_skills.models import AgentState
 from langgraph_skills.parser import parse_compiled_skill, validate_node_graph
@@ -47,13 +48,20 @@ def run_skill(
     initial_deliverables: Optional[Dict[str, Any]] = None,
     initial_messages: Optional[List[Any]] = None,
     on_token: Optional[Callable[[str], None]] = None,
+    quiet: bool = False,
 ) -> Dict[str, Any]:
     """执行 skill。
 
     initial_messages：外部传入的初始消息列表（子图调用时传入父图 messages）。
     on_token：流式回调（每个 LLM token 增量文本，用于流式输出给宿主）。
+    quiet：静默模式——隐藏节点级调试日志（保留交互提示与错误）；False 时全量输出。
     返回 final_deliverables，且若 initial_messages 提供则附带 "messages" 键（压缩后回传）。
     """
+    from langgraph_skills.debug import set_debug_print
+
+    if quiet:
+        set_debug_print(False)  # 静默：关闭调试日志；非 quiet 调用不强制重开（保留父图状态）
+
     print(f"1. Parsing and compiling skill graph: {skill_path}...", file=sys.stderr)
     compiled = parse_compiled_skill(skill_path)
     node_dict = compiled.nodes
@@ -122,8 +130,8 @@ def run_skill(
     if settings.api_key:
         for output in app.stream(initial_state):
             for key, value in output.items():
-                print(f"Output from node '{key}':")
-                print(value)
+                dprint(f"Output from node '{key}':")
+                dprint(value)
                 if isinstance(value, dict):
                     if "deliverables" in value:
                         final_deliverables = value["deliverables"]
@@ -139,7 +147,7 @@ def run_skill(
     return final_deliverables
 
 
-def run_cli(skill_file: str, remaining_args: List[str]) -> None:
+def run_cli(skill_file: str, remaining_args: List[str], quiet: bool = False) -> None:
     # Parse CLI options
     initial_deliverables = {}
 
@@ -198,7 +206,7 @@ def run_cli(skill_file: str, remaining_args: List[str]) -> None:
     sys.stdout = sys.stderr
 
     try:
-        final_deliverables = run_skill(skill_file, user_input, initial_deliverables)
+        final_deliverables = run_skill(skill_file, user_input, initial_deliverables, quiet=quiet)
         exit_code = int(final_deliverables.get("exit_code", 0))
 
         # Output only the final payload to stdout (or automatic writer file)

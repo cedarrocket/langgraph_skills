@@ -26,6 +26,7 @@ def main() -> None:
     # run subcommand
     run_parser = subparsers.add_parser("run", help="Run a compiled skill")
     run_parser.add_argument("skill_path", help="Path to compiled skill Markdown file")
+    run_parser.add_argument("-q", "--quiet", action="store_true", help="Hide node-level debug logs (keep interaction prompts and errors)")
     run_parser.add_argument("skill_args", nargs=argparse.REMAINDER, help="Arguments and options for the skill")
 
     # model subcommand
@@ -62,7 +63,7 @@ def main() -> None:
             print(f"Parsing error: {e}", file=sys.stderr)
             sys.exit(2)
     elif parsed.command == "run":
-        runner.run_cli(parsed.skill_path, parsed.skill_args)
+        runner.run_cli(parsed.skill_path, parsed.skill_args, quiet=getattr(parsed, "quiet", False))
     elif parsed.command == "model":
         if parsed.model_command == "list":
             model_cmd.cmd_list()

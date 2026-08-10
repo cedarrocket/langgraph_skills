@@ -18,6 +18,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from langgraph_skills.config import Settings
+from langgraph_skills.debug import dprint
 from langgraph_skills.hooks import ToolHooks, load_hooks
 from langgraph_skills.models import AgentState, ReplaceMessages, SubGraphInfo
 from langgraph_skills.nodes import RunSkillFn, SafeInputFn, create_node, generic_router, tool_router
@@ -54,7 +55,7 @@ def _make_subgraph_after(sub_name: str):
             ret["deliverables"] = deliv
             if child_msgs:
                 ret["messages"] = ReplaceMessages(list(child_msgs))
-                print(f"--- [SubGraph: {sub_name}] replace_messages: 父图 messages 已被子图输出替换 ({len(child_msgs)} 条) ---")
+                dprint(f"--- [SubGraph: {sub_name}] replace_messages: 父图 messages 已被子图输出替换 ({len(child_msgs)} 条) ---")
         return ret
 
     return after

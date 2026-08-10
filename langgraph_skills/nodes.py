@@ -24,6 +24,7 @@ from langgraph_skills.config import (
     DEFAULT_TEMPERATURE,
     Settings,
 )
+from langgraph_skills.debug import dprint
 from langgraph_skills.executors import ExecutorContext, _exec_hook_executor, get_executor
 from langgraph_skills.models import AgentState, NodeHook, NodeInfo, OnCondition
 from langgraph_skills.tools import ToolRegistry
@@ -67,7 +68,7 @@ def create_node(
         if node_info.max_context_length is not None:
             redirect = _pre_node_context_redirect(node_info, state)
             if redirect:
-                print(
+                dprint(
                     f"\n--- [Node: {node_info.name}] Context exceeded {node_info.max_context_length}, "
                     f"redirecting to subgraph '{redirect}' (loop not counted) ---"
                 )
@@ -98,7 +99,7 @@ def create_node(
         next_state = None
         output_messages: Optional[List[BaseMessage]] = None
 
-        print(f"\n--- [Node: {node_info.name}] Execution (Loop {current_loops}/{new_max_loops}) [Type: {node_info.node_type.capitalize()}] ---")
+        dprint(f"\n--- [Node: {node_info.name}] Execution (Loop {current_loops}/{new_max_loops}) [Type: {node_info.node_type.capitalize()}] ---")
 
         executor = get_executor(node_info.node_type)
         if executor is None:
@@ -116,7 +117,7 @@ def create_node(
         if node_start_signal:
             target = _resolve_signal_target(node_info, node_start_signal)
             if target:
-                print(
+                dprint(
                     f"  [NodeStart] condition '{node_start_signal}' fired -> skipping execution, routing to '{target}'"
                 )
                 return {
@@ -245,7 +246,7 @@ def create_node(
         if node_end_signal:
             target = _resolve_signal_target(node_info, node_end_signal)
             if target:
-                print(f"  [NodeEnd] signal '{node_end_signal}' fired -> overriding route to '{target}'")
+                dprint(f"  [NodeEnd] signal '{node_end_signal}' fired -> overriding route to '{target}'")
                 next_state = target
             else:
                 print(
@@ -428,7 +429,7 @@ def _run_node_checkpoint(
             continue
         try:
             if evaluate_condition(trigger, scope):
-                print(f"  [Trigger] Node '{node_name}': condition '{trigger.condition}' fired.")
+                dprint(f"  [Trigger] Node '{node_name}': condition '{trigger.condition}' fired.")
                 run_handler(trigger.on_trigger, scope)
         except Exception as e:
             print(f"  [Trigger] Node '{node_name}': trigger error: {e}")

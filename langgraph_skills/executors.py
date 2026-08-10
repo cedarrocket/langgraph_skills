@@ -26,6 +26,7 @@ from langgraph_skills.config import (
     Settings,
     get_deepseek_key,
 )
+from langgraph_skills.debug import dprint
 from langgraph_skills.models import NODE_CODE, NODE_LLM, NODE_SCRIPT, NODE_SKILL, AgentState, NodeHook, NodeInfo
 from langgraph_skills.tools import ToolRegistry
 
@@ -451,7 +452,7 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
                 else:
                     deliverables["feedback"] = None
                 deliverables["_inherit_history"] = bool(matching_trans and matching_trans.inherit_history)
-                print(f"  -> Model triggered transition: {next_state}")
+                dprint(f"  -> Model triggered transition: {next_state}")
                 from langchain_core.messages import ToolMessage
 
                 out_msgs.append(
@@ -464,7 +465,7 @@ def execute_llm(ctx: ExecutorContext) -> ExecutorResult:
             next_state = info.transitions[0].next
             payload = response.content
             deliverables["_inherit_history"] = info.transitions[0].inherit_history
-            print(f"  -> Auto-transition to: {next_state} (unconditional)")
+            dprint(f"  -> Auto-transition to: {next_state} (unconditional)")
             triggered_transition = True
 
     if info.interactive and not triggered_transition:
@@ -537,7 +538,7 @@ def _run_pre_llm_checkpoint(
             continue
         try:
             if evaluate_condition(trigger, scope):
-                print(f"  [Trigger] Node '{info.name}': condition '{trigger.condition}' fired (pre_llm).")
+                dprint(f"  [Trigger] Node '{info.name}': condition '{trigger.condition}' fired (pre_llm).")
                 run_handler(trigger.on_trigger, scope)
         except Exception as e:
             print(f"  [Trigger] Node '{info.name}': trigger error: {e}")

@@ -18,6 +18,8 @@ import os
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
+from langgraph_skills.debug import dprint
+
 # 检查点类型
 CHECKPOINT_PRE_LLM = "pre_llm"
 CHECKPOINT_POST_NODE = "post_node"
@@ -128,7 +130,7 @@ def _make_compact(scope: Dict[str, Any]) -> Callable[[int], int]:
             raise ValueError(f"compact(keep_last) expects keep_last >= 0, got {keep_last}")
         if isinstance(msgs, list):
             del msgs[: max(0, len(msgs) - keep_last)]
-        print(f"  [Trigger] compacted messages to last {keep_last} (now {len(msgs)})")
+        dprint(f"  [Trigger] compacted messages to last {keep_last} (now {len(msgs)})")
         return len(msgs)
 
     return compact
