@@ -376,3 +376,24 @@ triggers.py 核心 → 检查点埋点 → 语法糖展开 → triggers.json 加
 - `max_context_length` 保留为 `context_length_exceeded(n)` 的向后兼容糖（未来可能废除）
 
 **实现**：models.py（NodeHook/OnCondition）、parser.py（区块解析 + 谓词白名单）、executors.py（context 三模式构造）、nodes.py（on 求值 + signal 对接）。测试 test_node_hooks.py（12 个）。
+
+### 7.10 NodeEnd executor signal() + 工具边界 hooks（✅ 已实现）
+
+**NodeEnd executor signal() API**：NodeEnd 的 Python 代码块内可调用 `signal("name")` 抛 condition → 进 Transitions 按 signal 覆盖路由（与 on: 相同对接）。与 on: 的区别：executor 里不用提前声明会抛哪些 signal。NodeStart/NodeEnd 共用一个通用 executor 执行器（`_exec_hook_executor`，注入 state/messages/deliverables/spans/get_payload/transition_to/signal/HumanMessage 等）。
+
+**工具边界 hooks（hooks.json）**：对标 Claude Code PreToolUse/PostToolUse/PostToolUseFailure。
+```json
+{
+  "hooks": {
+    "pre_tool":   [{ "matcher": "*", "handler": "pre_tool.py" }],
+    "post_tool":  [{ "matcher": "read_file", "handler": "audit.py" }],
+    "post_tool_failure": [{ "matcher": "*", "handler": "fallback.py" }]
+  }
+}
+```
+- 独立 `hooks.json`（全局 `~/.config/langgraph_skills/` + 项目根，规则拼接非覆盖）
+- matcher：工具名 glob（`read_*` / `mcp__*`）
+- handler 注入：`tool_name` / `tool_args` / `tool_result` + deliverables/messages/get_payload/compact/current_node
+- 执行点：graph.py ToolNode 包装器内（pre_tool 调用前；post_tool/post_tool_failure 调用后）
+
+**实现**：hooks.py（ToolHooks/ToolHookRule/load_hooks/fire_tool_hooks）、graph.py（ToolNode 包装器触发 + matcher 匹配）、executors.py（`_exec_hook_executor`）、nodes.py（NodeEnd signal 对接）、triggers.py（run_handler 注入 scope 全键）。测试 test_hooks.py（6 个）+ test_node_hooks.py（+2）。

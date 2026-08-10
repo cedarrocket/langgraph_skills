@@ -183,27 +183,41 @@ def execute_skill(ctx: ExecutorContext) -> ExecutorResult:
     return ExecutorResult(next_state=next_state, payload=child_deliverables.get("payload", ""))
 
 
-def _run_context_executor(node_start: NodeHook, state: AgentState, ctx: ExecutorContext) -> List[BaseMessage]:
-    """执行 NodeStart 的 executor，产出 ctx_messages（喂给 LLM 的消息列表）。
+def _exec_hook_executor(
+    hook: NodeHook,
+    state: AgentState,
+    ctx: ExecutorContext,
+    *,
+    signal_cb: Optional[Callable[[str], None]] = None,
+    transition_cb: Optional[Callable[..., None]] = None,
+) -> Dict[str, Any]:
+    """执行一个 NodeHook 的 executor（NodeStart/NodeEnd 共用）。
 
-    executor 形态：内联代码块（NodeHook.executor）或 src 外部文件（NodeHook.src）。
-    注入环境：state/messages/deliverables/get_payload/transition_to/signal/spans。
-    代码须设置局部变量 ctx_messages（消息列表）或调用 signal("name") 抛 condition。
-    返回 ctx_messages（可为空由调用方校验）。
+    - 注入环境：state/messages/deliverables/spans/get_payload/transition_to/signal
+    - 产出：ctx_messages（喂给 LLM 的消息列表）或 signal("name") 抛 condition
+    - signal_cb：signal() 被调用时的回调（NodeEnd 用它记录抛出的 signal）
+    - 返回 {"ctx_messages": [...], "signal": Optional[str]}
     """
     import os as _os
 
-    code = node_start.executor
-    if not code and node_start.src:
-        src_path = node_start.src if _os.path.isabs(node_start.src) else node_start.src
+    code = hook.executor
+    if not code and hook.src:
+        src_path = hook.src if _os.path.isabs(hook.src) else hook.src
         if not _os.path.exists(src_path):
-            raise FileNotFoundError(f"NodeStart executor src not found: {src_path}")
+            raise FileNotFoundError(f"Hook executor src not found: {src_path}")
         with open(src_path, "r", encoding="utf-8") as f:
             code = f.read()
     if not code:
-        raise RuntimeError("NodeStart context: executor requires inline code or src.")
+        return {"ctx_messages": None, "signal": None}
 
     code = _strip_code_fence(code)
+
+    emitted: Dict[str, Any] = {"signal": None}
+
+    def _signal(name: str) -> None:
+        emitted["signal"] = name
+        if signal_cb is not None:
+            signal_cb(name)
 
     local_vars: Dict[str, Any] = {
         "state": state,
@@ -214,23 +228,25 @@ def _run_context_executor(node_start: NodeHook, state: AgentState, ctx: Executor
         "HumanMessage": HumanMessage,
         "AIMessage": AIMessage,
         "SystemMessage": SystemMessage,
-        "transition_to": lambda *a: (_ for _ in ()).throw(
-            RuntimeError("NodeStart executor must use signal() or set ctx_messages, not transition_to().")
-        ),
-        "signal": lambda _name: (_ for _ in ()).throw(
-            RuntimeError("signal() is only available in NodeEnd executor.")
-        ),
+        "transition_to": transition_cb or (lambda *a, **k: None),
+        "signal": _signal,
         "ctx_messages": None,
     }
 
     try:
         exec(code, {}, local_vars)
     except Exception as e:
-        print(f"Error executing NodeStart executor: {e}")
+        print(f"Error executing hook executor: {e}")
         raise e
 
     result = local_vars.get("ctx_messages")
-    return list(result) if result else []
+    return {"ctx_messages": list(result) if result else None, "signal": emitted["signal"]}
+
+
+def _run_context_executor(node_start: NodeHook, state: AgentState, ctx: ExecutorContext) -> List[BaseMessage]:
+    """执行 NodeStart 的 executor，产出 ctx_messages（喂给 LLM 的消息列表）。"""
+    result = _exec_hook_executor(node_start, state, ctx)
+    return list(result["ctx_messages"]) if result["ctx_messages"] else []
 
 
 def execute_llm(ctx: ExecutorContext) -> ExecutorResult:

@@ -24,7 +24,7 @@ from langgraph_skills.config import (
     DEFAULT_TEMPERATURE,
     Settings,
 )
-from langgraph_skills.executors import ExecutorContext, get_executor
+from langgraph_skills.executors import ExecutorContext, _exec_hook_executor, get_executor
 from langgraph_skills.models import AgentState, NodeHook, NodeInfo, OnCondition
 from langgraph_skills.tools import ToolRegistry
 from langgraph_skills.triggers import (
@@ -224,12 +224,18 @@ def create_node(
                 },
             )
 
-        # NodeEnd 钩子：on: 条件求值 → 命中则覆盖 next_state（signal 对应 Transitions 目标）
-        node_end_signal = _first_fired_signal(node_info.node_end, _condition_scope(node_info, state))
+        # NodeEnd 钩子：on: 条件求值 + executor（signal() API）→ 覆盖 next_state
+        node_end = node_info.node_end
+        node_end_signal = _first_fired_signal(node_end, _condition_scope(node_info, state))
+        if node_end and (node_end.executor or node_end.src):
+            # 执行 NodeEnd executor，捕获 signal() 抛出的 condition
+            emitted = _exec_hook_executor(node_end, state, ctx)
+            if emitted.get("signal") and not node_end_signal:
+                node_end_signal = emitted["signal"]
         if node_end_signal:
             target = _resolve_signal_target(node_info, node_end_signal)
             if target:
-                print(f"  [NodeEnd] condition '{node_end_signal}' fired -> overriding route to '{target}'")
+                print(f"  [NodeEnd] signal '{node_end_signal}' fired -> overriding route to '{target}'")
                 next_state = target
             else:
                 print(

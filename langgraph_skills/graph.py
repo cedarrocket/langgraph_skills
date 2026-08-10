@@ -18,6 +18,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from langgraph_skills.config import Settings
+from langgraph_skills.hooks import ToolHooks, load_hooks
 from langgraph_skills.models import AgentState, ReplaceMessages, SubGraphInfo
 from langgraph_skills.nodes import RunSkillFn, SafeInputFn, create_node, generic_router, tool_router
 from langgraph_skills.parser import parse_compiled_skill, validate_node_graph
@@ -69,6 +70,7 @@ def _compile_subgraph(
     settings: Optional[Settings],
     triggers: Optional[List[Trigger]],
     subgraph_names: Optional[set] = None,
+    tool_hooks: Optional[ToolHooks] = None,
 ):
     """把 # [SubGraph] 编译为 LangGraph 子图（真子图）。
 
@@ -98,7 +100,7 @@ def _compile_subgraph(
             # 嵌套子图：递归编译为真子图节点 + 后处理节点
             nested = info.subgraph
             nested_graph = _compile_subgraph(
-                nested, base_dir, tools, global_text, safe_input, run_skill, settings, triggers, subgraph_names
+                nested, base_dir, tools, global_text, safe_input, run_skill, settings, triggers, subgraph_names, tool_hooks
             )
             workflow.add_node(name, nested_graph)
             workflow.add_node(f"_sub_after_{name}", _make_subgraph_after(name))
@@ -106,7 +108,7 @@ def _compile_subgraph(
             workflow.add_node(name, create_node(info, tools, global_text, safe_input, run_skill, settings, triggers, subgraph_names))
 
     tools_node = ToolNode(tools.all())
-    workflow.add_node("tools", _make_tool_node(tools_node))
+    workflow.add_node("tools", _make_tool_node(tools_node, tool_hooks))
 
     for name, info in sub_dict.items():
         if info.node_type == "subgraph" and info.subgraph:
@@ -144,13 +146,20 @@ def _compile_subgraph(
     return workflow.compile()
 
 
-def _make_tool_node(tools_node: Any):
-    """包装 ToolNode：工具调用消息打 metadata + 记录 tool span。
+def _make_tool_node(tools_node: Any, hooks: Optional[ToolHooks] = None):
+    """包装 ToolNode：工具调用消息打 metadata + 记录 tool span + 工具边界 hooks。
 
     - ToolMessage 打 metadata：node=tools / tool=<工具名> / args=<调用参数>
     - 返回 spans：记录本次工具调用的 {tool, args, result, start, end}
+    - 工具边界 hooks：pre_tool（调用前）/ post_tool（调用后）/ post_tool_failure
     分支入口的 python 脚本可按 metadata + spans 区分每一步（含工具调用）。
     """
+    from langgraph_skills.hooks import (
+        CHECKPOINT_POST_TOOL,
+        CHECKPOINT_POST_TOOL_FAILURE,
+        CHECKPOINT_PRE_TOOL,
+        fire_tool_hooks,
+    )
 
     def wrapped_tool_node(state: AgentState) -> Dict[str, Any]:
         msg_start_idx = len(state.get("messages", []))
@@ -162,29 +171,60 @@ def _make_tool_node(tools_node: Any):
                 break
         calls_by_id = {c["id"]: c for c in (trigger_ai.tool_calls if trigger_ai else [])}
 
+        tool_names = list(calls_by_id.values())
+
+        # pre_tool hook（调用前）：每个待调工具
+        if hooks:
+            for call in tool_names:
+                name = call.get("name", "")
+                if not name:
+                    continue
+                hook_scope = {
+                    "deliverables": state.get("deliverables", {}),
+                    "messages": state.get("messages", []),
+                    "tool_name": name,
+                    "tool_args": call.get("args", {}),
+                    "current_node": state.get("current_node", ""),
+                }
+                fire_tool_hooks(hooks, CHECKPOINT_PRE_TOOL, hook_scope, name)
+
         out = tools_node.invoke(state)
 
         spans: List[Dict[str, Any]] = []
         out_msgs = out.get("messages", [])
         for i, m in enumerate(out_msgs):
+            tool_name = getattr(m, "name", None) or ""
             meta = dict(getattr(m, "metadata", None) or {})
             meta.setdefault("node", "tools")
-            meta.setdefault("tool", getattr(m, "name", None))
-            call = calls_by_id.get(getattr(m, "tool_call_id", None))
-            if call:
-                meta["args"] = call.get("args")
+            meta.setdefault("tool", tool_name)
+            matched_call = calls_by_id.get(getattr(m, "tool_call_id", None))
+            call_args = matched_call.get("args") if matched_call else None
+            if call_args is not None:
+                meta["args"] = call_args
             setattr(m, "metadata", meta)
-            call_args = call.get("args") if call else None
+            is_failure = isinstance(getattr(m, "content", ""), str) and m.content.startswith("Error:")
             spans.append({
                 "node": "tools",
                 "loop": 0,
                 "type": "tool",
-                "tool": getattr(m, "name", None),
+                "tool": tool_name,
                 "args": call_args,
                 "result": m.content,
                 "start": msg_start_idx + i,
                 "end": msg_start_idx + i + 1,
             })
+            # post_tool / post_tool_failure hook（调用后）
+            if hooks and tool_name:
+                checkpoint = CHECKPOINT_POST_TOOL_FAILURE if is_failure else CHECKPOINT_POST_TOOL
+                hook_scope = {
+                    "deliverables": state.get("deliverables", {}),
+                    "messages": state.get("messages", []),
+                    "tool_name": tool_name,
+                    "tool_args": call_args or {},
+                    "tool_result": m.content,
+                    "current_node": state.get("current_node", ""),
+                }
+                fire_tool_hooks(hooks, checkpoint, hook_scope, tool_name)
         out["spans"] = spans
         return out
 
@@ -206,6 +246,9 @@ def build_graph(
     """
     compiled = parse_compiled_skill(skill_path)
     node_dict = compiled.nodes
+
+    # 加载工具边界 hooks（hooks.json，全局 + 项目拼接）
+    tool_hooks = load_hooks()
 
     validation_errors = validate_node_graph(node_dict, subgraph_names=set(compiled.subgraphs.keys()))
     if validation_errors:
@@ -265,7 +308,7 @@ def build_graph(
     base_dir = os.path.dirname(os.path.abspath(skill_path))
     for sub_name, sub in compiled.subgraphs.items():
         sub_graph = _compile_subgraph(
-            sub, base_dir, tools, compiled.global_text, safe_input, run_skill, settings, triggers, subgraph_names
+            sub, base_dir, tools, compiled.global_text, safe_input, run_skill, settings, triggers, subgraph_names, tool_hooks
         )
         workflow.add_node(sub_name, sub_graph)
         # 子图后处理节点：==> X <== 覆盖语义（子图返回后整体替换父图 messages）
@@ -273,7 +316,7 @@ def build_graph(
 
     # 集中注册当前图的所有 Tools (合并成一个大 ToolNode)
     tools_node = ToolNode(tools.all())
-    workflow.add_node("tools", _make_tool_node(tools_node))
+    workflow.add_node("tools", _make_tool_node(tools_node, tool_hooks))
 
     # 构建边 (Edges)
     for name, info in node_dict.items():

@@ -185,7 +185,7 @@ def run_handler(handler_path: str, scope: Dict[str, Any]) -> None:
     if not os.path.exists(handler_path):
         print(f"  [Trigger] Handler file not found: {handler_path}")
         return
-    local_vars = {
+    local_vars: Dict[str, Any] = {
         "deliverables": scope.get("deliverables", {}),
         "messages": scope.get("messages", []),
         "get_payload": lambda: scope.get("deliverables", {}).get("payload"),
@@ -196,6 +196,10 @@ def run_handler(handler_path: str, scope: Dict[str, Any]) -> None:
         "error_flag": scope.get("error_flag", False),
         "current_node": scope.get("current_node", ""),
     }
+    # 追加 scope 中其余键（hooks 专属：tool_name/tool_args/tool_result 等）
+    for k, v in scope.items():
+        if k not in local_vars:
+            local_vars[k] = v
     try:
         with open(handler_path, "r", encoding="utf-8") as f:
             code = f.read()

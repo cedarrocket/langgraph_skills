@@ -293,3 +293,19 @@ semantics:
       semantics: "处理程序自行决定改状态/拦截/重试/压缩；compact(keep_last) 提供安全的消息裁剪接口（切片赋值，真实作用于图状态）"
     sugar_unification:
       description: "DSL 语法糖（max_loops/history_window/require_approval）与 trigger 底层统一（语法糖保留 DSL，JSON 存在时允许语法糖缺失）"
+
+  # 工具边界 hooks（独立 hooks.json，对标 Claude Code PreToolUse/PostToolUse）
+  tool_hooks:
+    config_file: "独立 hooks.json（全局 ~/.config/langgraph_skills/ + 项目根，规则拼接非覆盖）"
+    description: "工具调用边界的统一介入层：pre_tool（调用前）/ post_tool（调用后）/ post_tool_failure（失败时）"
+    schema: |
+      {
+        "hooks": {
+          "pre_tool":   [{ "matcher": "*", "handler": "pre_tool.py" }],
+          "post_tool":  [{ "matcher": "read_file", "handler": "audit.py" }],
+          "post_tool_failure": [{ "matcher": "*", "handler": "fallback.py" }]
+        }
+      }
+    matcher: "工具名，支持 * 通配（read_* / mcp__github__*）"
+    handler_scope: "注入 tool_name / tool_args / tool_result + deliverables/messages/get_payload/compact/current_node"
+    execution: "在 ToolNode 执行前后触发（graph.py 包装器）；pre_tool 在调用前，post_tool/post_tool_failure 在调用后"
